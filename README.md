@@ -1,4 +1,4 @@
-# Skill Link
+# Career Bridge
 
 This repository contains a developed MVP implementation of the Career Bridge proposal:
 
