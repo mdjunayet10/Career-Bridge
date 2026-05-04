@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: career-bridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: career_bridge
+      POSTGRES_USER: career_bridge
+      POSTGRES_PASSWORD: career_bridge_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - career_bridge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U career_bridge -d career_bridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  career_bridge_pgdata:

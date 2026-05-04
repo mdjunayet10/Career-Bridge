@@ -1,1 +1,25 @@
+# Dependencies
+node_modules/
 backend/node_modules/
+
+# Environment files
+.env
+backend/.env
+backend/.env.local.backup
+*.env
+
+# User uploaded files
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Build/cache
+dist/
+build/
+.cache/

@@ -1,78 +1,42 @@
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 const path = require("path");
-require("dotenv").config();
 
-const jobsRouter = require("./routes/jobs");
-const salariesRouter = require("./routes/salaries");
-const applicationsRouter = require("./routes/applications");
-const authRouter = require("./routes/auth");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
-const app = express();
+const createApp = require("./app");
+const prisma = require("./db/prisma");
+
 const port = process.env.PORT || 4000;
-const frontendRoot = path.resolve(__dirname, "../..");
-const corsOrigin = process.env.CLIENT_ORIGIN || "*";
-const rateLimitWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
-const rateLimitMax = Number(process.env.RATE_LIMIT_MAX || 120);
+const app = createApp();
 
-if (String(process.env.TRUST_PROXY || "false").toLowerCase() === "true") {
-  app.set("trust proxy", 1);
-}
-
-app.disable("x-powered-by");
-app.use(helmet({
-  crossOriginResourcePolicy: false,
-  contentSecurityPolicy: false
-}));
-app.use(cors({ origin: corsOrigin }));
-app.use(express.json({ limit: "1mb" }));
-
-const apiLimiter = rateLimit({
-  windowMs: rateLimitWindowMs,
-  max: rateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many requests. Please try again shortly."
-  }
-});
-
-app.use("/api", apiLimiter);
-app.use(express.static(frontendRoot));
-
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    message: "Career Bridge backend skeleton is running"
-  });
-});
-
-app.use("/api/jobs", jobsRouter);
-app.use("/api/salaries", salariesRouter);
-app.use("/api/applications", applicationsRouter);
-app.use("/api/auth", authRouter);
-
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(frontendRoot, "index.html"));
-});
-
-app.use((req, res) => {
-  res.status(404).json({
-    message: "Route not found",
-    path: req.originalUrl
-  });
-});
-
-app.use((error, _req, res, _next) => {
-  console.error("Unhandled error:", error);
-
-  res.status(error.statusCode || 500).json({
-    message: error.statusCode ? error.message : "Internal server error"
-  });
-});
-
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Career Bridge backend running at http://localhost:${port}`);
 });
+
+server.on("error", async (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Stop the other backend process or set PORT to another value.`);
+  } else {
+    console.error("Career Bridge backend failed to start:", error);
+  }
+
+  await prisma.$disconnect();
+  process.exit(1);
+});
+
+let isShuttingDown = false;
+
+async function shutdown(signal) {
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  console.log(`${signal} received. Closing Career Bridge backend...`);
+  server.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Career Bridge | Job Discovery Platform</title>
+  <title>Career Bridge | Role-Based Career Platform</title>
   <script>
     document.documentElement.classList.add("js");
   </script>
@@ -33,29 +33,32 @@
 
   <header class="site-header">
     <div class="container nav-wrap">
-      <a href="#home" class="brand">
+      <a href="#home" class="brand" data-nav-home>
         <span class="brand-mark">CB</span>
         <span class="brand-text">Career Bridge</span>
       </a>
 
       <div class="header-right">
-        <button id="menuButton" class="menu-button" aria-expanded="false" aria-controls="siteNav">
-          <span class="sr-only">Toggle menu</span>
+        <button id="menuButton" class="menu-button" aria-expanded="false" aria-controls="siteNav" title="Menu">
           <i class="fa-solid fa-bars"></i>
+          <span>Menu</span>
         </button>
 
-        <nav id="siteNav" class="site-nav" aria-label="Primary">
-          <a href="#jobs">Find Jobs</a>
-          <a href="#salaries">Salary Insights</a>
-          <a href="#employers">Employers</a>
-          <a href="#applications">Applications</a>
-        </nav>
+        <nav id="siteNav" class="site-nav" aria-label="Primary"></nav>
 
         <div class="auth-corner">
           <p id="authQuickStatus" class="auth-quick-status">Not signed in</p>
-          <button id="openAuthModalButton" class="btn btn-secondary auth-open-btn" type="button">
+          <button id="loginButton" class="btn btn-secondary auth-open-btn" type="button">
             <i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i>
-            <span id="openAuthModalButtonLabel">Login</span>
+            <span>Login</span>
+          </button>
+          <button id="registerButton" class="btn btn-ghost auth-open-btn" type="button">
+            <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
+            <span>Register</span>
+          </button>
+          <button id="logoutButton" class="btn btn-ghost auth-open-btn" type="button" hidden>
+            <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+            <span>Logout</span>
           </button>
         </div>
       </div>
@@ -63,86 +66,333 @@
   </header>
 
   <main id="home">
-    <section class="hero section reveal">
+    <section id="publicHome" class="hero section reveal" data-visible-roles="PUBLIC">
       <div class="container hero-grid">
         <div class="hero-copy">
           <p class="kicker">Bangladesh Career Platform</p>
-          <h1>Find jobs, build your career, and connect with employers.</h1>
+          <h1>Find jobs, build your career and hire with confidence.</h1>
           <p>
-            Career Bridge brings job discovery, salary insight, CV applications, and employer hiring tools
-            into one fast, trustworthy platform built for Bangladesh's growing professional market.
+            Career Bridge separates public discovery, job seeker tools, employer hiring operations,
+            and admin moderation into focused role-based workspaces.
           </p>
 
           <div class="hero-actions">
             <a class="btn btn-primary" href="#jobs"><i class="fa-solid fa-briefcase" aria-hidden="true"></i>Explore Jobs</a>
-            <a class="btn btn-secondary" href="#employers"><i class="fa-solid fa-plus" aria-hidden="true"></i>Post a Job</a>
             <a class="btn btn-ghost" href="#salaries"><i class="fa-solid fa-chart-line" aria-hidden="true"></i>Salary Insights</a>
           </div>
-
-          <p class="status-line">
-            <span id="apiStatus" class="status-pill">Checking backend...</span>
-            <span id="apiHint">Run the backend for full live mode.</span>
-          </p>
-
-          <ul class="hero-meta" aria-label="Career Bridge highlights">
-            <li><i class="fa-solid fa-location-dot"></i> Dhaka-first job market signals</li>
-            <li><i class="fa-solid fa-file-arrow-up"></i> Apply with CV upload and preview</li>
-            <li><i class="fa-solid fa-user-tie"></i> Employer dashboard for hiring teams</li>
-          </ul>
         </div>
-
-        <aside class="hero-panel dashboard-preview" aria-label="Career Bridge dashboard preview">
-          <div class="dashboard-preview-header">
-            <div>
-              <p class="eyebrow">Live hiring desk</p>
-              <h2>Career Match Command</h2>
-            </div>
-            <span class="live-dot">Active</span>
-          </div>
-          <div class="match-card">
-            <div>
-              <span class="match-score">92%</span>
-              <p>Frontend Developer match</p>
-            </div>
-            <span class="badge success">Dhaka</span>
-          </div>
-          <div class="panel-grid">
-            <article>
-              <i class="fa-solid fa-sack-dollar" aria-hidden="true"></i>
-              <p class="stat">BDT 35k-80k</p>
-              <p>Salary range</p>
-            </article>
-            <article>
-              <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-              <p class="stat">18</p>
-              <p>Applications tracked</p>
-            </article>
-            <article>
-              <i class="fa-solid fa-building" aria-hidden="true"></i>
-              <p class="stat">7</p>
-              <p>Employer actions</p>
-            </article>
-            <article>
-              <i class="fa-solid fa-bolt" aria-hidden="true"></i>
-              <p class="stat">Fast</p>
-              <p>Live API workflow</p>
-            </article>
-          </div>
-          <div class="activity-strip">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </aside>
       </div>
     </section>
 
-    <section id="jobs" class="section reveal">
+    <section id="jobSeekerDashboard" class="section reveal" data-visible-roles="JOB_SEEKER" hidden>
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">Job Seeker Dashboard</p>
+          <h2 id="jobSeekerWelcome">Welcome back.</h2>
+          <p>Track your profile, saved jobs, and application status in one workspace.</p>
+        </div>
+
+        <div id="jobSeekerStats" class="dashboard-stat-grid"></div>
+
+        <div class="dashboard-layout">
+          <article class="panel" id="profilePanel">
+            <p class="kicker">Profile</p>
+            <h2>Edit Profile</h2>
+            <p class="helper-note">A complete profile helps employers understand your skills faster.</p>
+            <form id="profileForm" class="stack-form">
+              <label>
+                Headline
+                <input name="headline" type="text" placeholder="Junior Backend Developer" />
+              </label>
+              <div class="form-row">
+                <label>
+                  Phone
+                  <input name="phone" type="tel" placeholder="+880..." />
+                </label>
+                <label>
+                  Location
+                  <input name="location" type="text" placeholder="Dhaka" />
+                </label>
+              </div>
+              <label>
+                Skills
+                <input name="skills" type="text" placeholder="JavaScript, Node.js, SQL" />
+              </label>
+              <label>
+                Bio
+                <textarea name="bio" rows="4"></textarea>
+              </label>
+              <div class="form-row">
+                <label>
+                  Portfolio URL
+                  <input name="portfolioUrl" type="url" />
+                </label>
+                <label>
+                  GitHub URL
+                  <input name="githubUrl" type="url" />
+                </label>
+              </div>
+              <button class="btn btn-primary" type="submit">Save Profile</button>
+              <p id="profileStatus" class="form-status" aria-live="polite"></p>
+            </form>
+          </article>
+
+          <article class="panel">
+            <p class="kicker">Applications</p>
+            <h2>Recent Status</h2>
+            <div id="jobSeekerApplications" class="application-grid compact-grid"></div>
+          </article>
+        </div>
+
+        <article class="panel dashboard-panel-spaced">
+          <div class="dashboard-panel-heading">
+            <div>
+              <p class="kicker">Saved Jobs</p>
+              <h2>Your shortlist</h2>
+            </div>
+            <a class="btn btn-secondary" href="#jobs"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>Find Jobs</a>
+          </div>
+          <div id="savedJobsList" class="job-grid"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="employerDashboard" class="section reveal" data-visible-roles="EMPLOYER" hidden>
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">Employer Dashboard</p>
+          <h2 id="employerWelcome">Hiring workspace</h2>
+          <p>Manage your company profile, job posts, and applicants for your own company only.</p>
+        </div>
+
+        <div id="companyVerificationNotice" class="notice-panel" hidden></div>
+
+        <div id="employerStats" class="dashboard-stat-grid"></div>
+
+        <div class="dashboard-layout">
+          <article id="companyPanel" class="panel">
+            <p class="kicker">Company</p>
+            <h2>Company Profile</h2>
+            <form id="companyForm" class="stack-form">
+              <label>
+                Company name
+                <input name="name" type="text" required />
+              </label>
+              <div class="form-row">
+                <label>
+                  Industry
+                  <input name="industry" type="text" />
+                </label>
+                <label>
+                  Size
+                  <input name="size" type="text" placeholder="11-50" />
+                </label>
+              </div>
+              <label>
+                Location
+                <input name="location" type="text" />
+              </label>
+              <label>
+                Website
+                <input name="website" type="url" />
+              </label>
+              <label>
+                Description
+                <textarea name="description" rows="4"></textarea>
+              </label>
+              <button class="btn btn-primary" type="submit">Save Company</button>
+              <p id="companyStatus" class="form-status" aria-live="polite"></p>
+            </form>
+          </article>
+
+          <article id="postJobPanel" class="panel">
+            <p class="kicker">Post Job</p>
+            <h2>Create a new listing</h2>
+            <form id="postJobForm" class="stack-form">
+              <label>
+                Job title
+                <input name="title" type="text" required />
+              </label>
+              <div class="form-row">
+                <label>
+                  Location
+                  <input name="location" type="text" placeholder="Dhaka" />
+                </label>
+                <label>
+                  Type
+                  <select name="type">
+                    <option>Full-time</option>
+                    <option>Part-time</option>
+                    <option>Hybrid</option>
+                    <option>Remote</option>
+                    <option>Contract</option>
+                    <option>Internship</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Salary minimum
+                  <input name="salaryMin" type="number" min="0" step="1000" />
+                </label>
+                <label>
+                  Salary maximum
+                  <input name="salaryMax" type="number" min="0" step="1000" />
+                </label>
+              </div>
+              <label>
+                Description
+                <textarea name="description" rows="4"></textarea>
+              </label>
+              <label>
+                Requirements
+                <textarea name="requirements" rows="3" placeholder="Comma or new line separated"></textarea>
+              </label>
+              <button class="btn btn-primary" type="submit">Post Job</button>
+              <p id="postJobStatus" class="form-status" aria-live="polite"></p>
+            </form>
+          </article>
+        </div>
+
+        <article id="myJobsPanel" class="panel dashboard-panel-spaced">
+          <div class="dashboard-panel-heading">
+            <div>
+              <p class="kicker">My Jobs</p>
+              <h2>Manage posted jobs</h2>
+            </div>
+          </div>
+          <div id="employerJobsList" class="listing-grid"></div>
+        </article>
+
+        <article id="applicantsPanel" class="panel dashboard-panel-spaced">
+          <div class="dashboard-panel-heading">
+            <div>
+              <p class="kicker">Applicants</p>
+              <h2>Review applications</h2>
+            </div>
+          </div>
+          <div id="employerApplicationsList" class="application-grid"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="adminDashboard" class="section reveal" data-visible-roles="ADMIN" hidden>
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">Admin Dashboard</p>
+          <h2>Platform moderation and health.</h2>
+          <p>Monitor users, companies, jobs, applications, reports, and salary insights.</p>
+        </div>
+
+        <div id="adminStatsGrid" class="dashboard-stat-grid"></div>
+
+        <article id="adminUsersPanel" class="panel dashboard-panel-spaced">
+          <div class="dashboard-panel-heading">
+            <div>
+              <p class="kicker">Users</p>
+              <h2>Manage accounts</h2>
+            </div>
+          </div>
+          <div id="adminUsersTable" class="table-wrap"></div>
+        </article>
+
+        <article id="adminCompaniesPanel" class="panel dashboard-panel-spaced">
+          <p class="kicker">Companies</p>
+          <h2>Verification</h2>
+          <div id="adminCompaniesTable" class="table-wrap"></div>
+        </article>
+
+        <article id="adminJobsPanel" class="panel dashboard-panel-spaced">
+          <p class="kicker">Jobs</p>
+          <h2>Moderate listings</h2>
+          <div id="adminJobsTable" class="table-wrap"></div>
+        </article>
+
+        <article id="adminApplicationsPanel" class="panel dashboard-panel-spaced">
+          <div class="dashboard-panel-heading">
+            <div>
+              <p class="kicker">Applications</p>
+              <h2>Application management</h2>
+              <p class="helper-note">Review candidates, shortlist strong profiles, and move them through the hiring pipeline.</p>
+            </div>
+          </div>
+          <div id="adminApplicationStatusSummary" class="status-summary-grid"></div>
+          <form id="adminApplicationFilters" class="admin-filter-bar">
+            <label>
+              Search
+              <input name="search" type="search" placeholder="Applicant, email, job, or company" />
+            </label>
+            <label>
+              Status
+              <select name="status">
+                <option value="">All statuses</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="REVIEWED">Reviewed</option>
+                <option value="SHORTLISTED">Shortlisted</option>
+                <option value="INTERVIEW">Interview</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="HIRED">Hired</option>
+              </select>
+            </label>
+          </form>
+          <div id="adminShortlistQueue" class="application-grid compact-grid"></div>
+          <div id="adminApplicationsTable" class="table-wrap"></div>
+        </article>
+
+        <div class="dashboard-layout dashboard-panel-spaced">
+          <article id="adminSalaryPanel" class="panel">
+            <p class="kicker">Salary Insights</p>
+            <h2>Manage benchmarks</h2>
+            <form id="salaryInsightForm" class="stack-form">
+              <label>
+                Role title
+                <input name="roleTitle" type="text" required />
+              </label>
+              <div class="form-row">
+                <label>
+                  Location
+                  <input name="location" type="text" placeholder="Dhaka" />
+                </label>
+                <label>
+                  Experience level
+                  <input name="experienceLevel" type="text" placeholder="Junior to Mid" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  Salary min
+                  <input name="salaryMin" type="number" min="0" required />
+                </label>
+                <label>
+                  Salary max
+                  <input name="salaryMax" type="number" min="0" required />
+                </label>
+              </div>
+              <label>
+                Source
+                <input name="source" type="text" placeholder="Career Bridge benchmark" />
+              </label>
+              <button class="btn btn-primary" type="submit">Add Insight</button>
+              <p id="salaryInsightStatus" class="form-status" aria-live="polite"></p>
+            </form>
+            <div id="adminSalaryInsights" class="compact-list"></div>
+          </article>
+
+          <article id="adminReportsPanel" class="panel">
+            <p class="kicker">Reports</p>
+            <h2>Moderation queue</h2>
+            <div id="adminReportsList" class="compact-list"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="jobs" class="section reveal" data-visible-roles="PUBLIC,JOB_SEEKER">
       <div class="container">
         <div class="section-heading">
           <p class="kicker">Job Discovery</p>
           <h2>Search serious roles from growing employers.</h2>
-          <p>Search by role, company, or location. Open a role for details, requirements, and CV application.</p>
+          <p id="jobSectionHint">Public visitors can view jobs. Sign in as a Job Seeker to apply or save roles.</p>
           <p class="inline-meta"><span id="jobCount">0</span> jobs currently available</p>
         </div>
 
@@ -165,122 +415,38 @@
         </div>
 
         <div id="jobList" class="job-grid"></div>
-
-        <p id="employeeAuthStatus" class="form-status auth-inline-status" aria-live="polite"></p>
+        <p id="jobActionStatus" class="form-status auth-inline-status" aria-live="polite"></p>
       </div>
     </section>
 
-    <section id="salaries" class="section reveal">
+    <section id="salaries" class="section reveal" data-visible-roles="PUBLIC,JOB_SEEKER">
       <div class="container">
         <div class="section-heading">
           <p class="kicker">Salary Intelligence</p>
           <h2>Understand fair pay before you apply.</h2>
-          <p>
-            Role-based BDT salary ranges help candidates negotiate and help employers set realistic offers.
-          </p>
+          <p>Role-based BDT salary ranges help candidates negotiate and employers set realistic offers.</p>
         </div>
         <div id="salaryGrid" class="card-grid"></div>
       </div>
     </section>
 
-    <section id="employers" class="section reveal">
-      <div class="container two-col">
-        <article class="panel">
-          <p class="kicker">Employer Console</p>
-          <h2>Post a job</h2>
-          <p>Create a polished listing and publish it instantly on the platform.</p>
-          <p class="helper-note">Posting uses the signed-in employer credentials.</p>
-
-          <form id="postJobForm" class="stack-form">
-            <label>
-              Job title
-              <input id="postTitle" name="title" type="text" required />
-            </label>
-
-            <label>
-              Company
-              <input id="postCompany" name="company" type="text" required />
-            </label>
-
-            <div class="form-row">
-              <label>
-                Location
-                <input id="postLocation" name="location" type="text" placeholder="Dhaka" />
-              </label>
-              <label>
-                Type
-                <select id="postType" name="type">
-                  <option>Full-time</option>
-                  <option>Part-time</option>
-                  <option>Hybrid</option>
-                  <option>Remote</option>
-                  <option>Contract</option>
-                </select>
-              </label>
-            </div>
-
-            <label>
-              Salary range
-              <input id="postSalary" name="salary" type="text" placeholder="BDT 45,000 - 70,000" />
-            </label>
-
-            <label>
-              Job description
-              <textarea id="postDescription" name="description" rows="3"></textarea>
-            </label>
-
-            <label>
-              Requirements (comma or new line separated)
-              <textarea id="postRequirements" name="requirements" rows="3"></textarea>
-            </label>
-
-            <button class="btn btn-primary" type="submit">Post Job</button>
-            <p id="postJobStatus" class="form-status" aria-live="polite"></p>
-          </form>
-        </article>
-
-        <article class="panel">
-          <p class="kicker">Hiring Operations</p>
-          <h2>Manage Job Listings</h2>
-          <p>Review active listings and remove any outdated posts.</p>
-
-          <p class="helper-note">Use the Login button at the top-right and sign in as Employer to manage listings.</p>
-          <p id="employerAuthStatus" class="form-status auth-inline-status" aria-live="polite"></p>
-
-          <div id="listingGrid" class="listing-grid"></div>
-        </article>
-      </div>
-    </section>
-
-    <section id="applications" class="section reveal">
-      <div class="container">
-        <div class="section-heading">
-          <p class="kicker">Employer View</p>
-          <h2>Recent Applications</h2>
-          <p>Only applications owned by the signed-in employer are shown here.</p>
-        </div>
-
-        <div id="applicationList" class="application-grid"></div>
-      </div>
-    </section>
-
-    <section id="audience" class="section reveal product-strip">
+    <section id="publicEmployers" class="section reveal product-strip" data-visible-roles="PUBLIC">
       <div class="container two-col">
         <article class="panel">
           <h2>For Job Seekers</h2>
           <ul>
-            <li>View salary ranges by common job roles</li>
-            <li>Search jobs and inspect role details</li>
-            <li>Apply for a selected opportunity</li>
+            <li>Save jobs and track application statuses</li>
+            <li>Manage a profile with skills and portfolio links</li>
+            <li>Apply securely with a protected CV upload</li>
           </ul>
         </article>
 
         <article class="panel">
           <h2>For Employers</h2>
           <ul>
-            <li>Post job listings</li>
-            <li>Manage active job posts</li>
-            <li>Track candidate applications</li>
+            <li>Create company profiles and post openings</li>
+            <li>Review only applicants for your own jobs</li>
+            <li>Update status, add private notes, and download CVs</li>
           </ul>
         </article>
       </div>
@@ -290,7 +456,7 @@
   <footer class="site-footer">
     <div class="container footer-wrap">
       <p>Career Bridge</p>
-      <p>Bangladesh-focused career platform</p>
+      <p>Role-based career platform</p>
     </div>
   </footer>
 
@@ -303,50 +469,166 @@
       aria-labelledby="modalJobTitle"
       aria-describedby="modalJobDescription"
     >
-      <button id="closeModalButton" class="close-modal" type="button" aria-label="Close job details">
-        <i class="fa-solid fa-xmark"></i>
+      <button id="closeModalButton" class="close-modal" type="button" aria-label="Close job details" title="Close Details">
+        <span class="close-glyph" aria-hidden="true">&times;</span>
       </button>
 
       <div id="jobDetailPanel" class="job-detail-panel"></div>
 
-      <h3>Apply with CV</h3>
-      <form id="applyForm" class="stack-form">
-        <input id="applyJobId" name="jobId" type="hidden" />
+      <div id="applyPanel">
+        <h3>Apply with CV</h3>
+        <div id="alreadyAppliedNotice" class="notice-panel" hidden>
+          <strong>Already applied</strong>
+          <p>You have already applied for this job. You can track the status from your Job Seeker dashboard.</p>
+        </div>
+        <form id="applyForm" class="stack-form">
+          <input id="applyJobId" name="jobId" type="hidden" />
 
-        <label>
-          Full name
-          <input id="applyName" name="applicantName" type="text" required />
-        </label>
+          <label>
+            Full name
+            <input id="applyName" name="applicantName" type="text" required />
+          </label>
 
-        <label>
-          Email
-          <input id="applyEmail" name="applicantEmail" type="email" required />
-        </label>
+          <label>
+            Email
+            <input id="applyEmail" name="applicantEmail" type="email" required />
+          </label>
 
-        <label>
-          Phone
-          <input id="applyPhone" name="applicantPhone" type="tel" placeholder="Optional" />
-        </label>
+          <label>
+            Phone
+            <input id="applyPhone" name="applicantPhone" type="tel" placeholder="Optional" />
+          </label>
 
-        <label>
-          CV (PDF, DOC, DOCX)
-          <input
-            id="applyCvFile"
-            name="cvFile"
-            type="file"
-            accept=".pdf,.doc,.docx"
-            required
-          />
-        </label>
+          <div class="cv-mode-switch" role="tablist" aria-label="CV method">
+            <button id="cvUploadModeButton" class="auth-role-tab active" type="button" data-cv-mode="upload">Upload existing CV</button>
+            <button id="cvBuilderModeButton" class="auth-role-tab" type="button" data-cv-mode="builder">Build CV</button>
+          </div>
 
-        <label>
-          Cover letter
-          <textarea id="applyCoverLetter" name="coverLetter" rows="3"></textarea>
-        </label>
+          <section id="cvUploadPanel" class="cv-method-panel">
+            <label>
+              CV (PDF, DOC, DOCX)
+              <input
+                id="applyCvFile"
+                name="cvFile"
+                type="file"
+                accept=".pdf,.doc,.docx"
+              />
+            </label>
+          </section>
 
-        <button class="btn btn-primary" type="submit">Submit Application</button>
-        <p id="applyStatus" class="form-status" aria-live="polite"></p>
-      </form>
+          <section id="cvBuilderPanel" class="cv-method-panel" hidden>
+            <div class="cv-builder-toolbar">
+              <label>
+                Profile picture
+                <input id="cvBuilderPhoto" name="cvPhoto" type="file" accept="image/png,image/jpeg,image/webp" />
+              </label>
+              <button id="resetCvBuilderButton" class="btn btn-secondary" type="button">Reset/Clear Form</button>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Basic Info</h4>
+              </div>
+              <div class="form-row">
+                <label>
+                  Professional headline
+                  <input id="cvBuilderProgram" name="cvProgram" type="text" data-cv-scalar="program" placeholder="Operations Associate • 3 years experience" />
+                </label>
+                <label>
+                  Optional identifier
+                  <input id="cvBuilderStudentId" name="cvStudentId" type="text" data-cv-scalar="studentId" placeholder="Certification, license, employee ID, or batch" />
+                </label>
+              </div>
+              <label>
+                Professional summary
+                <textarea id="cvBuilderSummary" name="cvSummary" rows="3" data-cv-scalar="summary" placeholder="Concise 2-3 line summary of your strengths, experience, and target role."></textarea>
+              </label>
+              <div class="form-row">
+                <label>
+                  Current location
+                  <input id="cvBuilderLocation" name="cvLocation" type="text" data-cv-scalar="location" placeholder="Dhaka, Bangladesh" />
+                </label>
+                <label>
+                  LinkedIn
+                  <input id="cvBuilderLinkedin" name="cvLinkedin" type="url" data-cv-scalar="linkedin" placeholder="https://linkedin.com/in/your-profile" />
+                </label>
+              </div>
+              <label>
+                Address
+                <input id="cvBuilderAddress" name="cvAddress" type="text" data-cv-scalar="address" placeholder="64 Madina Garden, Chapakhanar Mor, Ansar Camp, Dhaka" />
+              </label>
+              <label>
+                Portfolio / GitHub
+                <input id="cvBuilderGithub" name="cvGithub" type="url" data-cv-scalar="github" placeholder="https://your-portfolio.example.com" />
+              </label>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Education</h4>
+                <button id="addEducationButton" class="btn btn-secondary" type="button">Add Education</button>
+              </div>
+              <div id="cvBuilderEducationList" class="cv-repeatable-list" data-cv-list="education"></div>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Skills</h4>
+                <button id="addSkillCategoryButton" class="btn btn-secondary" type="button">Add Skill Category</button>
+              </div>
+              <div id="cvBuilderSkillsList" class="cv-repeatable-list" data-cv-list="skills"></div>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Projects / Work Samples</h4>
+                <button id="addProjectButton" class="btn btn-secondary" type="button">Add Project</button>
+              </div>
+              <div id="cvBuilderProjectsList" class="cv-repeatable-list" data-cv-list="projects"></div>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Achievements</h4>
+                <button id="addAchievementButton" class="btn btn-secondary" type="button">Add Achievement</button>
+              </div>
+              <div id="cvBuilderAchievementsList" class="cv-repeatable-list" data-cv-list="achievements"></div>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>Leadership & Activities</h4>
+                <button id="addActivityButton" class="btn btn-secondary" type="button">Add Activity</button>
+              </div>
+              <div id="cvBuilderActivitiesList" class="cv-repeatable-list" data-cv-list="activities"></div>
+            </div>
+
+            <div class="cv-builder-section">
+              <div class="cv-builder-section-heading">
+                <h4>References</h4>
+                <button id="addReferenceButton" class="btn btn-secondary" type="button">Add Reference</button>
+              </div>
+              <div id="cvBuilderReferencesList" class="cv-repeatable-list" data-cv-list="references"></div>
+            </div>
+
+            <div class="inline-actions cv-builder-actions">
+              <button id="previewCvBuilderButton" class="btn btn-secondary" type="button">Preview CV</button>
+              <button id="downloadCvBuilderButton" class="btn btn-secondary" type="button">Download PDF</button>
+              <button id="useGeneratedCvButton" class="btn btn-primary" type="button">Attach CV</button>
+            </div>
+            <p id="cvBuilderStatus" class="form-status" aria-live="polite"></p>
+            <article id="cvBuilderPreview" class="cv-builder-preview" hidden></article>
+          </section>
+
+          <label>
+            Cover letter
+            <textarea id="applyCoverLetter" name="coverLetter" rows="3"></textarea>
+          </label>
+
+          <button class="btn btn-primary" type="submit">Submit Application</button>
+        </form>
+      </div>
+      <p id="applyStatus" class="form-status" aria-live="polite"></p>
     </div>
   </div>
 
@@ -358,8 +640,8 @@
       aria-modal="true"
       aria-labelledby="cvModalTitle"
     >
-      <button id="closeCvModalButton" class="close-modal" type="button" aria-label="Close CV preview">
-        <i class="fa-solid fa-xmark"></i>
+      <button id="closeCvModalButton" class="close-modal" type="button" aria-label="Close CV preview" title="Close CV Preview">
+        <span class="close-glyph" aria-hidden="true">&times;</span>
       </button>
 
       <h3 id="cvModalTitle">Applicant CV</h3>
@@ -381,79 +663,87 @@
       aria-modal="true"
       aria-labelledby="authModalTitle"
     >
-      <button id="closeAuthModalButton" class="close-modal" type="button" aria-label="Close login dialog">
-        <i class="fa-solid fa-xmark"></i>
+      <button id="closeAuthModalButton" class="close-modal" type="button" aria-label="Close authentication dialog" title="Close Login">
+        <span class="close-glyph" aria-hidden="true">&times;</span>
       </button>
 
       <h3 id="authModalTitle">Welcome to Career Bridge</h3>
-      <p class="helper-note">Choose your workspace and continue securely.</p>
+      <p id="authModalHelper" class="helper-note">Choose your role and continue securely.</p>
 
-      <div class="auth-role-switch" role="tablist" aria-label="Account role">
-        <button
-          id="employeeAuthTab"
-          class="auth-role-tab active"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="employeeAuthPanel"
-          data-auth-role="employee"
-        >
-          Job Seeker
-        </button>
-        <button
-          id="employerAuthTab"
-          class="auth-role-tab"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="employerAuthPanel"
-          data-auth-role="employer"
-        >
-          Employer
-        </button>
+      <div id="authModeSwitch" class="auth-role-switch" role="tablist" aria-label="Authentication mode">
+        <button id="authLoginMode" class="auth-role-tab active" type="button">Login</button>
+        <button id="authRegisterMode" class="auth-role-tab" type="button">Register</button>
       </div>
 
-      <section id="employeeAuthPanel" class="auth-panel" role="tabpanel" aria-labelledby="employeeAuthTab">
-        <form id="employeeAuthForm" class="stack-form">
-          <label>
-            Job seeker email
-            <input id="employeeEmail" name="employeeEmail" type="email" required />
-          </label>
+      <div id="authRoleSwitch" class="auth-role-switch" role="tablist" aria-label="Account role">
+        <button class="auth-role-tab active" type="button" data-auth-role="JOB_SEEKER">Job Seeker</button>
+        <button class="auth-role-tab" type="button" data-auth-role="EMPLOYER">Employer</button>
+        <button class="auth-role-tab" type="button" data-auth-role="ADMIN">Admin</button>
+      </div>
 
-          <label>
-            Job seeker password
-            <input id="employeePassword" name="employeePassword" type="password" required />
-          </label>
+      <form id="authForm" class="stack-form">
+        <label class="auth-register-only">
+          Full name
+          <input id="authName" name="name" type="text" autocomplete="name" />
+        </label>
 
-          <div class="inline-actions">
-            <button class="btn btn-secondary" type="submit">Sign In as Job Seeker</button>
-            <button id="employeeLogoutButton" class="btn btn-ghost" type="button">Sign Out</button>
+        <label>
+          Email
+          <input id="authEmail" name="email" type="email" autocomplete="email" required />
+        </label>
+
+        <label>
+          Password
+          <div class="password-field">
+            <input id="authPassword" name="password" type="password" autocomplete="current-password" required />
+            <button id="togglePasswordButton" class="btn-action" type="button" aria-label="Show password">Show</button>
           </div>
+          <span id="passwordHelper" class="field-helper">Use at least 8 characters.</span>
+        </label>
+
+        <label class="auth-employer-register-only">
+          Company name
+          <input id="authCompanyName" name="companyName" type="text" />
+        </label>
+
+        <button id="authSubmitButton" class="btn btn-primary" type="submit">Login</button>
+      </form>
+
+      <div id="forgotPasswordPanel" class="auth-secondary-panel auth-link-row">
+        <button id="forgotPasswordButton" class="btn-link" type="button">Forgot your password?</button>
+      </div>
+
+      <section id="passwordRecoveryPanel" class="password-recovery-panel" hidden>
+        <form id="forgotPasswordForm" class="stack-form">
+          <label>
+            Account email
+            <input id="recoveryEmailInput" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+          </label>
+          <button id="sendResetButton" class="btn btn-primary" type="submit">Send Verification Code</button>
         </form>
-        <p class="helper-note">Demo employee login: employee@careerbridge.com / demo1234</p>
+
+        <form id="resetPasswordForm" class="stack-form auth-secondary-panel" hidden>
+          <label>
+            Verification code
+            <input id="resetTokenInput" name="token" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter 6-digit code" />
+          </label>
+          <label>
+            New password
+            <input id="resetPasswordInput" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+          </label>
+          <button class="btn btn-primary" type="submit">Set New Password</button>
+        </form>
+
+        <button id="backToLoginButton" class="btn-link auth-back-link" type="button">Back to login</button>
       </section>
 
-      <section id="employerAuthPanel" class="auth-panel" role="tabpanel" aria-labelledby="employerAuthTab" hidden>
-        <form id="employerAuthForm" class="stack-form">
-          <label>
-            Employer email
-            <input id="employerEmail" name="employerEmail" type="email" required />
-          </label>
-
-          <label>
-            Employer access key
-            <input id="employerKey" name="employerKey" type="password" required />
-          </label>
-
-          <div class="inline-actions">
-            <button class="btn btn-secondary" type="submit">Sign In as Employer</button>
-            <button id="employerLogoutButton" class="btn btn-ghost" type="button">Sign Out</button>
-          </div>
-        </form>
-        <p class="helper-note">Demo employer login: employer@careerbridge.com / demo1234</p>
-      </section>
+      <p id="authStatus" class="form-status" aria-live="polite"></p>
+      <p id="resetStatus" class="form-status" aria-live="polite"></p>
+      <p id="authDemoHint" class="helper-note"></p>
     </div>
   </div>
+
+  <div id="toast" class="toast" hidden></div>
 
   <script src="scripts/main.js" defer></script>
 </body>

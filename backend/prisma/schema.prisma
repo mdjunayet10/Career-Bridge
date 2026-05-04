@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  JOB_SEEKER
+  EMPLOYER
+  ADMIN
+}
+
+enum WorkplaceType {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  REVIEWED
+  SHORTLISTED
+  INTERVIEW
+  REJECTED
+  HIRED
+}
+
+model User {
+  id               Int               @id @default(autoincrement())
+  name             String
+  email            String            @unique
+  passwordHash     String
+  role             UserRole          @default(JOB_SEEKER)
+  avatarUrl        String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  jobSeekerProfile JobSeekerProfile?
+  companies        Company[]         @relation("CompanyOwner")
+  applications     Application[]     @relation("ApplicantApplications")
+  savedJobs        SavedJob[]
+  reports          Report[]          @relation("ReporterReports")
+  auditLogs        AuditLog[]        @relation("ActorAuditLogs")
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([role])
+  @@index([isActive])
+}
+
+model JobSeekerProfile {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @unique
+  headline     String?
+  phone        String?
+  location     String?
+  bio          String?
+  skills       String[] @default([])
+  education    Json?
+  experience   Json?
+  portfolioUrl String?
+  linkedinUrl  String?
+  githubUrl    String?
+  resumeUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Company {
+  id          Int      @id @default(autoincrement())
+  ownerUserId Int
+  name        String
+  logoUrl     String?
+  industry    String?
+  size        String?
+  location    String?
+  website     String?
+  description String?
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation("CompanyOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  jobs        Job[]
+
+  @@index([ownerUserId])
+  @@index([verified])
+}
+
+model Job {
+  id               Int           @id @default(autoincrement())
+  companyId        Int
+  title            String
+  description      String
+  requirements     String[]      @default([])
+  responsibilities String[]      @default([])
+  location         String
+  jobType          String
+  workplaceType    WorkplaceType @default(ONSITE)
+  experienceLevel  String?
+  salaryMin        Int?
+  salaryMax        Int?
+  currency         String        @default("BDT")
+  deadline         DateTime?
+  status           JobStatus     @default(OPEN)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  company          Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applications     Application[]
+  savedBy          SavedJob[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([jobType])
+  @@index([workplaceType])
+  @@index([experienceLevel])
+  @@index([location])
+}
+
+model Application {
+  id                 Int               @id @default(autoincrement())
+  jobId              Int
+  applicantUserId    Int
+  resumeUrl          String?
+  resumeStorageName  String?
+  resumeOriginalName String?
+  coverLetter        String?
+  status             ApplicationStatus @default(SUBMITTED)
+  employerNote       String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  job                Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicant          User              @relation("ApplicantApplications", fields: [applicantUserId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, applicantUserId])
+  @@index([applicantUserId])
+  @@index([status])
+}
+
+model SavedJob {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  jobId     Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([jobId])
+}
+
+model SalaryInsight {
+  id              Int      @id @default(autoincrement())
+  roleTitle       String
+  location        String?
+  salaryMin       Int
+  salaryMax       Int
+  currency        String   @default("BDT")
+  experienceLevel String?
+  source          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([roleTitle])
+  @@index([location])
+  @@index([experienceLevel])
+}
+
+model Report {
+  id             Int      @id @default(autoincrement())
+  reporterUserId Int
+  targetType     String
+  targetId       Int
+  reason         String
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  reporter       User     @relation("ReporterReports", fields: [reporterUserId], references: [id], onDelete: Cascade)
+
+  @@index([reporterUserId])
+  @@index([targetType, targetId])
+  @@index([status])
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  actorUserId Int?
+  action      String
+  targetType  String
+  targetId    Int?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  actor       User?    @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([targetType, targetId])
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}

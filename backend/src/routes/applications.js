@@ -1,386 +1,352 @@
-const express = require("express");
 const fs = require("fs");
-const path = require("path");
-const multer = require("multer");
+const express = require("express");
+const { z } = require("zod");
+const prisma = require("../db/prisma");
+const asyncHandler = require("../middleware/asyncHandler");
+const { requireAuth, requireRole } = require("../middleware/auth");
+const { validateBody } = require("../middleware/validate");
+const { createError } = require("../utils/apiError");
+const { writeAuditLog } = require("../utils/audit");
 const {
-  addApplication,
-  findApplicationById,
-  findJobById,
-  isEmployerAuthorizedForJob,
-  listApplications
-} = require("../data/store");
-const {
-  extractEmployeeCredentials,
-  extractEmployerCredentials,
-  hasAnyCredentialPart,
-  hasBothCredentials
-} = require("../utils/employerCredentials");
-const { isSafePath } = require("../utils/fileCleanup");
+  getResumePath,
+  removeUploadedFile,
+  sanitizeDownloadFileName,
+  uploadResume
+} = require("../utils/files");
+const { serializeApplication } = require("../utils/serializers");
 
 const router = express.Router();
-const uploadDirectory = path.resolve(__dirname, "../../uploads");
 
-fs.mkdirSync(uploadDirectory, { recursive: true });
-
-const allowedExtensions = new Set([".pdf", ".doc", ".docx"]);
-const allowedMimeTypes = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/octet-stream"
-]);
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => {
-    callback(null, uploadDirectory);
+const applicationInclude = {
+  applicant: {
+    include: {
+      jobSeekerProfile: true
+    }
   },
-  filename: (_req, file, callback) => {
-    const extension = path.extname(file.originalname || "").toLowerCase();
-    const uniquePrefix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    callback(null, `${uniquePrefix}${extension}`);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024
-  },
-  fileFilter: (_req, file, callback) => {
-    const extension = path.extname(file.originalname || "").toLowerCase();
-    const isAllowedExtension = allowedExtensions.has(extension);
-    const isAllowedMime = allowedMimeTypes.has((file.mimetype || "").toLowerCase());
-
-    if (isAllowedExtension && isAllowedMime) {
-      callback(null, true);
-      return;
-    }
-
-    const validationError = new Error("Only PDF, DOC, or DOCX files are allowed for CV uploads.");
-    validationError.statusCode = 400;
-    callback(validationError);
-  }
-});
-
-function sanitizeDownloadFileName(value) {
-  return String(value || "cv-file")
-    .replace(/[\r\n\t]/g, " ")
-    .replaceAll('"', "")
-    .trim() || "cv-file";
-}
-
-function toApplicationResponse(application, canViewCv) {
-  const {
-    cvFileName,
-    ...rest
-  } = application;
-
-  return {
-    ...rest,
-    cvOriginalName: canViewCv ? rest.cvOriginalName : "",
-    canViewCv: canViewCv && Boolean(cvFileName)
-  };
-}
-
-function removeUploadedFile(file) {
-  if (!file || !file.path) {
-    return;
-  }
-
-  fs.unlink(file.path, () => {
-    // Best effort cleanup for rejected uploads.
-  });
-}
-
-router.get("/", (req, res) => {
-  const credentials = extractEmployerCredentials(req);
-  const rawJobId = req.query.jobId;
-
-  if (credentials.authMethod === "token-invalid") {
-    res.status(401).json({
-      message: "Session expired. Please sign in again."
-    });
-    return;
-  }
-
-  if (credentials.authMethod === "token-role-mismatch") {
-    res.status(403).json({
-      message: "Employer access is required for this action."
-    });
-    return;
-  }
-
-  if (hasAnyCredentialPart(credentials) && !hasBothCredentials(credentials)) {
-    res.status(400).json({
-      message: "Both employerEmail and employerKey are required"
-    });
-    return;
-  }
-
-  if (!hasBothCredentials(credentials)) {
-    res.json({
-      data: [],
-      count: 0,
-      message: "Provide employer credentials to view applications"
-    });
-    return;
-  }
-
-  if (rawJobId === undefined) {
-    const data = listApplications()
-      .filter((application) => isEmployerAuthorizedForJob(
-        application.jobId,
-        credentials.employerEmail,
-        credentials.employerKey
-      ))
-      .map((application) => toApplicationResponse(application, true));
-
-    res.json({ data, count: data.length });
-    return;
-  }
-
-  const jobId = Number.parseInt(rawJobId, 10);
-
-  if (Number.isNaN(jobId)) {
-    res.status(400).json({
-      message: "Invalid job ID"
-    });
-    return;
-  }
-
-  const data = listApplications({ jobId })
-    .filter((application) => isEmployerAuthorizedForJob(
-      application.jobId,
-      credentials.employerEmail,
-      credentials.employerKey
-    ))
-    .map((application) => toApplicationResponse(application, true));
-
-  res.json({ data, count: data.length });
-});
-
-router.post("/", upload.single("cvFile"), (req, res) => {
-  const employeeCredentials = extractEmployeeCredentials(req);
-
-  if (employeeCredentials.authMethod === "token-invalid") {
-    removeUploadedFile(req.file);
-
-    res.status(401).json({
-      message: "Session expired. Please sign in again."
-    });
-    return;
-  }
-
-  if (employeeCredentials.authMethod === "token-role-mismatch") {
-    removeUploadedFile(req.file);
-
-    res.status(403).json({
-      message: "Employee access is required to submit applications."
-    });
-    return;
-  }
-
-  if (String(process.env.REQUIRE_EMPLOYEE_AUTH || "true").toLowerCase() !== "false") {
-    if (employeeCredentials.authMethod !== "token") {
-      removeUploadedFile(req.file);
-
-      res.status(401).json({
-        message: "Please sign in as an employee before applying."
-      });
-      return;
+  job: {
+    include: {
+      company: true
     }
   }
+};
 
-  const {
-    jobId,
-    applicantName,
-    applicantEmail,
-    applicantPhone,
-    coverLetter
-  } = req.body;
+const applicationStatusAliases = {
+  PENDING: "SUBMITTED",
+  ACCEPTED: "HIRED"
+};
 
-  const parsedJobId = Number.parseInt(jobId, 10);
-  const normalizedName = String(applicantName || "").trim();
-  const normalizedEmail = String(
-    employeeCredentials.authMethod === "token"
-      ? employeeCredentials.employeeEmail
-      : (applicantEmail || "")
-  ).trim().toLowerCase();
-  const normalizedPhone = String(applicantPhone || "").trim();
-  const normalizedCoverLetter = String(coverLetter || "").trim();
-
-  if (Number.isNaN(parsedJobId) || parsedJobId <= 0) {
-    removeUploadedFile(req.file);
-
-    res.status(400).json({
-      message: "A valid jobId is required"
-    });
-    return;
-  }
-
-  if (!normalizedName || !normalizedEmail) {
-    removeUploadedFile(req.file);
-
-    res.status(400).json({
-      message: "applicantName and applicantEmail are required"
-    });
-    return;
-  }
-
-  if (!normalizedEmail.includes("@") || normalizedEmail.length > 150 || normalizedName.length > 120) {
-    removeUploadedFile(req.file);
-
-    res.status(400).json({
-      message: "Provide a valid applicantName and applicantEmail"
-    });
-    return;
-  }
-
-  if (!req.file) {
-    res.status(400).json({
-      message: "A CV file is required"
-    });
-    return;
-  }
-
-  const job = findJobById(parsedJobId);
-
-  if (!job) {
-    removeUploadedFile(req.file);
-
-    res.status(404).json({
-      message: "Job not found"
-    });
-    return;
-  }
-
-  const application = addApplication({
-    jobId: parsedJobId,
-    applicantName: normalizedName,
-    applicantEmail: normalizedEmail,
-    applicantPhone: normalizedPhone,
-    cvFileName: req.file.filename,
-    cvOriginalName: req.file.originalname,
-    coverLetter: normalizedCoverLetter
-  });
-
-  res.status(201).json({
-    message: "Application submitted successfully",
-    data: {
-      ...toApplicationResponse(application, false),
-      jobTitle: job.title,
-      company: job.company
-    }
-  });
+const statusSchema = z.object({
+  status: z.preprocess((value) => {
+    const normalized = String(value || "").trim().toUpperCase();
+    return applicationStatusAliases[normalized] || normalized;
+  }, z.enum(["SUBMITTED", "REVIEWED", "SHORTLISTED", "INTERVIEW", "REJECTED", "HIRED"]))
 });
 
-router.get("/:id/cv", (req, res) => {
-  const applicationId = Number.parseInt(req.params.id, 10);
-  const credentials = extractEmployerCredentials(req);
+const noteSchema = z.object({
+  employerNote: z.string().trim().max(2000).optional().default("")
+});
 
-  if (credentials.authMethod === "token-invalid") {
-    res.status(401).json({
-      message: "Session expired. Please sign in again."
-    });
-    return;
+function parseId(value, label = "ID") {
+  const id = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw createError(400, `Invalid ${label}`);
   }
 
-  if (credentials.authMethod === "token-role-mismatch") {
-    res.status(403).json({
-      message: "Employer access is required for this action."
-    });
-    return;
-  }
+  return id;
+}
 
-  if (Number.isNaN(applicationId)) {
-    res.status(400).json({
-      message: "Invalid application ID"
-    });
-    return;
-  }
+function canEmployerAccessApplication(user, application) {
+  return user.role === "ADMIN" || (
+    user.role === "EMPLOYER"
+    && application.job?.company?.ownerUserId === user.id
+  );
+}
 
-  if (!hasBothCredentials(credentials)) {
-    res.status(401).json({
-      message: "Employer credentials are required"
-    });
-    return;
-  }
+function canDownloadResume(user, application) {
+  return user.role === "ADMIN"
+    || application.applicantUserId === user.id
+    || canEmployerAccessApplication(user, application);
+}
 
-  const application = findApplicationById(applicationId);
+async function findApplication(applicationId) {
+  const application = await prisma.application.findUnique({
+    where: {
+      id: applicationId
+    },
+    include: applicationInclude
+  });
 
   if (!application) {
-    res.status(404).json({
-      message: "Application not found"
-    });
-    return;
+    throw createError(404, "Application not found");
   }
 
-  if (!application.cvFileName) {
-    res.status(404).json({
-      message: "CV file is not available for this application"
-    });
-    return;
+  return application;
+}
+
+const downloadResumeHandler = asyncHandler(async (req, res) => {
+  const applicationId = parseId(req.params.id, "application ID");
+  const application = await findApplication(applicationId);
+
+  if (!canDownloadResume(req.user, application)) {
+    throw createError(403, "You are not allowed to view this CV");
   }
 
-  const canAccess = isEmployerAuthorizedForJob(
-    application.jobId,
-    credentials.employerEmail,
-    credentials.employerKey
-  );
-
-  if (!canAccess) {
-    res.status(403).json({
-      message: "You are not allowed to view this CV"
-    });
-    return;
+  if (!application.resumeStorageName) {
+    throw createError(404, "CV file is not available for this application");
   }
 
-  const cvPath = path.resolve(uploadDirectory, application.cvFileName);
+  const resumePath = getResumePath(application.resumeStorageName);
 
-  if (!isSafePath(uploadDirectory, cvPath)) {
-    res.status(400).json({
-      message: "Invalid CV path"
-    });
-    return;
+  if (!resumePath || !fs.existsSync(resumePath)) {
+    throw createError(404, "CV file is missing from the server");
   }
 
-  if (!fs.existsSync(cvPath)) {
-    res.status(404).json({
-      message: "CV file is missing from the server"
-    });
-    return;
-  }
-
-  const displayName = sanitizeDownloadFileName(application.cvOriginalName);
+  const displayName = sanitizeDownloadFileName(application.resumeOriginalName);
   res.setHeader("Content-Disposition", `inline; filename="${displayName}"`);
-  res.sendFile(cvPath);
+  res.sendFile(resumePath);
 });
 
-router.use((error, _req, res, _next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === "LIMIT_FILE_SIZE") {
-      res.status(400).json({
-        message: "CV size must be 5MB or smaller"
-      });
-      return;
+router.get("/", requireAuth, requireRole("EMPLOYER", "ADMIN"), asyncHandler(async (req, res) => {
+  const jobId = req.query.jobId ? parseId(req.query.jobId, "job ID") : null;
+  const where = {};
+
+  if (jobId) {
+    where.jobId = jobId;
+  }
+
+  if (req.user.role === "EMPLOYER") {
+    where.job = {
+      company: {
+        ownerUserId: req.user.id
+      }
+    };
+  }
+
+  const applications = await prisma.application.findMany({
+    where,
+    include: applicationInclude,
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  res.json({
+    data: applications.map((application) => serializeApplication(application, {
+      canViewResume: true,
+      includeEmployerNote: true
+    })),
+    count: applications.length
+  });
+}));
+
+router.get("/me", requireAuth, requireRole("JOB_SEEKER"), asyncHandler(async (req, res) => {
+  const applications = await prisma.application.findMany({
+    where: {
+      applicantUserId: req.user.id
+    },
+    include: applicationInclude,
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  res.json({
+    data: applications.map((application) => serializeApplication(application, {
+      canViewResume: true
+    })),
+    count: applications.length
+  });
+}));
+
+router.post("/", requireAuth, requireRole("JOB_SEEKER"), uploadResume.single("cvFile"), asyncHandler(async (req, res) => {
+  try {
+    const jobId = parseId(req.body.jobId, "job ID");
+    const applicantName = String(req.body.applicantName || "").trim();
+    const applicantPhone = String(req.body.applicantPhone || "").trim();
+    const coverLetter = String(req.body.coverLetter || "").trim();
+
+    if (!req.file) {
+      throw createError(400, "A CV file is required");
     }
 
-    res.status(400).json({
-      message: error.message
+    if (applicantName && applicantName.length > 120) {
+      throw createError(400, "applicantName must be 120 characters or less");
+    }
+
+    if (applicantPhone.length > 40) {
+      throw createError(400, "applicantPhone must be 40 characters or less");
+    }
+
+    if (coverLetter.length > 3000) {
+      throw createError(400, "coverLetter must be 3000 characters or less");
+    }
+
+    const job = await prisma.job.findUnique({
+      where: {
+        id: jobId
+      },
+      include: {
+        company: true
+      }
     });
-    return;
+
+    if (!job || job.status !== "OPEN") {
+      throw createError(404, "Open job not found");
+    }
+
+    let application;
+
+    try {
+      application = await prisma.application.create({
+        data: {
+          jobId,
+          applicantUserId: req.user.id,
+          resumeStorageName: req.file.filename,
+          resumeOriginalName: req.file.originalname,
+          coverLetter: coverLetter || null
+        }
+      });
+    } catch (error) {
+      if (error.code === "P2002") {
+        throw createError(409, "You have already applied to this job");
+      }
+
+      throw error;
+    }
+
+    const resumeUrl = `/api/applications/${application.id}/resume`;
+
+    const [updatedApplication] = await prisma.$transaction([
+      prisma.application.update({
+        where: {
+          id: application.id
+        },
+        data: {
+          resumeUrl
+        },
+        include: applicationInclude
+      }),
+      prisma.jobSeekerProfile.upsert({
+        where: {
+          userId: req.user.id
+        },
+        create: {
+          userId: req.user.id,
+          phone: applicantPhone || null,
+          resumeUrl
+        },
+        update: {
+          ...(applicantPhone ? { phone: applicantPhone } : {}),
+          resumeUrl
+        }
+      }),
+      ...(applicantName && applicantName !== req.user.name ? [
+        prisma.user.update({
+          where: {
+            id: req.user.id
+          },
+          data: {
+            name: applicantName
+          }
+        })
+      ] : [])
+    ]);
+
+    await writeAuditLog({
+      actorUserId: req.user.id,
+      action: "SUBMIT_APPLICATION",
+      targetType: "APPLICATION",
+      targetId: updatedApplication.id,
+      metadata: {
+        jobId
+      }
+    });
+
+    res.status(201).json({
+      message: "Application submitted successfully",
+      data: serializeApplication(updatedApplication, {
+        canViewResume: true
+      })
+    });
+  } catch (error) {
+    removeUploadedFile(req.file);
+    throw error;
+  }
+}));
+
+router.patch("/:id/status", requireAuth, requireRole("EMPLOYER", "ADMIN"), validateBody(statusSchema), asyncHandler(async (req, res) => {
+  const applicationId = parseId(req.params.id, "application ID");
+  const application = await findApplication(applicationId);
+
+  if (!canEmployerAccessApplication(req.user, application)) {
+    throw createError(403, "You are not allowed to update this application");
   }
 
-  if (error) {
-    res.status(error.statusCode || 500).json({
-      message: error.message || "Could not upload CV"
-    });
-    return;
-  }
-
-  res.status(500).json({
-    message: "Unexpected error"
+  const updatedApplication = await prisma.application.update({
+    where: {
+      id: applicationId
+    },
+    data: {
+      status: req.body.status
+    },
+    include: applicationInclude
   });
-});
+
+  await writeAuditLog({
+    actorUserId: req.user.id,
+    action: "UPDATE_APPLICATION_STATUS",
+    targetType: "APPLICATION",
+    targetId: applicationId,
+    metadata: {
+      status: req.body.status
+    }
+  });
+
+  res.json({
+    message: "Application status updated",
+    data: serializeApplication(updatedApplication, {
+      canViewResume: true,
+      includeEmployerNote: true
+    })
+  });
+}));
+
+router.patch("/:id/note", requireAuth, requireRole("EMPLOYER", "ADMIN"), validateBody(noteSchema), asyncHandler(async (req, res) => {
+  const applicationId = parseId(req.params.id, "application ID");
+  const application = await findApplication(applicationId);
+
+  if (!canEmployerAccessApplication(req.user, application)) {
+    throw createError(403, "You are not allowed to update this application");
+  }
+
+  const updatedApplication = await prisma.application.update({
+    where: {
+      id: applicationId
+    },
+    data: {
+      employerNote: req.body.employerNote || null
+    },
+    include: applicationInclude
+  });
+
+  await writeAuditLog({
+    actorUserId: req.user.id,
+    action: "UPDATE_APPLICATION_NOTE",
+    targetType: "APPLICATION",
+    targetId: applicationId
+  });
+
+  res.json({
+    message: "Employer note updated",
+    data: serializeApplication(updatedApplication, {
+      canViewResume: true,
+      includeEmployerNote: true
+    })
+  });
+}));
+
+router.get("/:id/resume", requireAuth, downloadResumeHandler);
+router.get("/:id/cv", requireAuth, downloadResumeHandler);
 
 module.exports = router;

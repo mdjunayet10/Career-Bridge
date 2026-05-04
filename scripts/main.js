@@ -5,6 +5,8 @@ const configuredApiBase = document
 const API_BASE = String(configuredApiBase || "").trim()
   || (window.location.protocol === "file:" ? "http://localhost:4000" : "");
 const REQUEST_TIMEOUT_MS = 12_000;
+const AUTH_STORAGE_KEY = "careerBridgeAuth";
+const CV_BUILDER_STORAGE_KEY = "careerBridgeCvBuilderDraft";
 
 const fallbackSalaries = [
   {
@@ -35,10 +37,10 @@ const fallbackJobs = [
     location: "Dhaka",
     type: "Full-time",
     salary: "BDT 35,000 - 45,000",
+    status: "OPEN",
     description: "Build and maintain responsive interfaces with modern JavaScript.",
     requirements: ["HTML, CSS, JavaScript", "Git basics"],
-    employerEmail: "employer@careerbridge.com",
-    employerKey: "demo1234"
+    postedAt: new Date().toISOString()
   },
   {
     id: 2,
@@ -47,10 +49,10 @@ const fallbackJobs = [
     location: "Dhaka",
     type: "Hybrid",
     salary: "BDT 55,000 - 80,000",
+    status: "OPEN",
     description: "Create scalable APIs and optimize backend services.",
     requirements: ["Node.js + Express", "Database knowledge"],
-    employerEmail: "employer@careerbridge.com",
-    employerKey: "demo1234"
+    postedAt: new Date().toISOString()
   },
   {
     id: 3,
@@ -59,96 +61,183 @@ const fallbackJobs = [
     location: "Dhaka",
     type: "Full-time",
     salary: "BDT 45,000 - 70,000",
+    status: "OPEN",
     description: "Analyze datasets and convert findings into business insights.",
     requirements: ["SQL and Excel", "Dashboard reporting"],
-    employerEmail: "employer@careerbridge.com",
-    employerKey: "demo1234"
+    postedAt: new Date().toISOString()
   }
 ];
 
-const fallbackEmployeeAccount = {
-  email: "employee@careerbridge.com",
-  password: "demo1234",
-  displayName: "Career Bridge Demo Employee"
-};
+const applicationStatuses = ["SUBMITTED", "REVIEWED", "SHORTLISTED", "INTERVIEW", "REJECTED", "HIRED"];
+const jobStatuses = ["DRAFT", "OPEN", "CLOSED", "ARCHIVED"];
+const reportStatuses = ["OPEN", "REVIEWING", "RESOLVED", "DISMISSED"];
+const seededDemoEmails = new Set([
+  "admin@careerbridge.com",
+  "employer@careerbridge.com",
+  "employee@careerbridge.com"
+]);
 
 const state = {
   apiOnline: false,
+  currentUser: null,
+  authToken: "",
+  currentRole: "PUBLIC",
+  selectedJob: null,
   currentKeyword: "",
-  salaries: [...fallbackSalaries],
+  authMode: "login",
+  authRole: "JOB_SEEKER",
   jobs: [...fallbackJobs],
+  salaries: [...fallbackSalaries],
+  savedJobs: [],
+  savedJobIds: new Set(),
   applications: [],
-  managedJobIds: new Set(),
-  employeeSession: {
-    employeeEmail: "",
-    displayName: "",
-    accessToken: "",
-    tokenExpiresAt: ""
+  appliedJobIds: new Set(),
+  profile: null,
+  employerDashboard: null,
+  employerCompany: null,
+  employerJobs: [],
+  employerApplications: [],
+  adminStats: null,
+  adminUsers: [],
+  adminCompanies: [],
+  adminJobs: [],
+  adminApplications: [],
+  adminApplicationFilters: {
+    search: "",
+    status: ""
   },
-  employerSession: {
-    employerEmail: "",
-    employerKey: "",
-    accessToken: "",
-    tokenExpiresAt: ""
-  },
-  authModalRole: "employee",
+  adminReports: [],
+  cvMode: "upload",
+  generatedCvFile: null,
+  cvBuilderPhotoDataUrl: "",
+  cvBuilderPhotoPdfData: null,
   cvPreview: {
     objectUrl: "",
     fileName: "",
-    requestId: 0,
     returnFocus: null
   }
 };
 
 const elements = {
-  apiStatus: document.querySelector("#apiStatus"),
-  apiHint: document.querySelector("#apiHint"),
-  salaryGrid: document.querySelector("#salaryGrid"),
-  jobList: document.querySelector("#jobList"),
+  siteNav: document.querySelector("#siteNav"),
+  brandHome: document.querySelector("[data-nav-home]"),
+  menuButton: document.querySelector("#menuButton"),
+  authQuickStatus: document.querySelector("#authQuickStatus"),
+  loginButton: document.querySelector("#loginButton"),
+  registerButton: document.querySelector("#registerButton"),
+  logoutButton: document.querySelector("#logoutButton"),
   jobCount: document.querySelector("#jobCount"),
+  jobSectionHint: document.querySelector("#jobSectionHint"),
   jobSearch: document.querySelector("#jobSearch"),
   filterChips: document.querySelector("#filterChips"),
-  listingGrid: document.querySelector("#listingGrid"),
-  applicationList: document.querySelector("#applicationList"),
-  authQuickStatus: document.querySelector("#authQuickStatus"),
-  openAuthModalButton: document.querySelector("#openAuthModalButton"),
-  openAuthModalButtonLabel: document.querySelector("#openAuthModalButtonLabel"),
+  jobList: document.querySelector("#jobList"),
+  jobActionStatus: document.querySelector("#jobActionStatus"),
+  salaryGrid: document.querySelector("#salaryGrid"),
+  jobSeekerWelcome: document.querySelector("#jobSeekerWelcome"),
+  jobSeekerStats: document.querySelector("#jobSeekerStats"),
+  profileForm: document.querySelector("#profileForm"),
+  profileStatus: document.querySelector("#profileStatus"),
+  jobSeekerApplications: document.querySelector("#jobSeekerApplications"),
+  savedJobsList: document.querySelector("#savedJobsList"),
+  employerWelcome: document.querySelector("#employerWelcome"),
+  companyVerificationNotice: document.querySelector("#companyVerificationNotice"),
+  employerStats: document.querySelector("#employerStats"),
+  companyForm: document.querySelector("#companyForm"),
+  companyStatus: document.querySelector("#companyStatus"),
+  postJobForm: document.querySelector("#postJobForm"),
+  postJobStatus: document.querySelector("#postJobStatus"),
+  employerJobsList: document.querySelector("#employerJobsList"),
+  employerApplicationsList: document.querySelector("#employerApplicationsList"),
+  adminStatsGrid: document.querySelector("#adminStatsGrid"),
+  adminUsersTable: document.querySelector("#adminUsersTable"),
+  adminCompaniesTable: document.querySelector("#adminCompaniesTable"),
+  adminJobsTable: document.querySelector("#adminJobsTable"),
+  adminApplicationStatusSummary: document.querySelector("#adminApplicationStatusSummary"),
+  adminApplicationFilters: document.querySelector("#adminApplicationFilters"),
+  adminShortlistQueue: document.querySelector("#adminShortlistQueue"),
+  adminApplicationsTable: document.querySelector("#adminApplicationsTable"),
+  adminReportsList: document.querySelector("#adminReportsList"),
+  salaryInsightForm: document.querySelector("#salaryInsightForm"),
+  salaryInsightStatus: document.querySelector("#salaryInsightStatus"),
+  adminSalaryInsights: document.querySelector("#adminSalaryInsights"),
   authModal: document.querySelector("#authModal"),
   closeAuthModalButton: document.querySelector("#closeAuthModalButton"),
   authModalBackdrop: document.querySelector("[data-close-auth-modal]"),
-  employeeAuthTab: document.querySelector("#employeeAuthTab"),
-  employerAuthTab: document.querySelector("#employerAuthTab"),
-  employeeAuthPanel: document.querySelector("#employeeAuthPanel"),
-  employerAuthPanel: document.querySelector("#employerAuthPanel"),
-  employeeAuthForm: document.querySelector("#employeeAuthForm"),
-  employeeEmail: document.querySelector("#employeeEmail"),
-  employeePassword: document.querySelector("#employeePassword"),
-  employeeLogoutButton: document.querySelector("#employeeLogoutButton"),
-  employeeAuthStatus: document.querySelector("#employeeAuthStatus"),
-  employerAuthForm: document.querySelector("#employerAuthForm"),
-  employerEmail: document.querySelector("#employerEmail"),
-  employerKey: document.querySelector("#employerKey"),
-  employerLogoutButton: document.querySelector("#employerLogoutButton"),
-  employerAuthStatus: document.querySelector("#employerAuthStatus"),
-  postJobForm: document.querySelector("#postJobForm"),
-  postJobStatus: document.querySelector("#postJobStatus"),
-  applyForm: document.querySelector("#applyForm"),
-  applyName: document.querySelector("#applyName"),
-  applyEmail: document.querySelector("#applyEmail"),
-  applyStatus: document.querySelector("#applyStatus"),
-  applyJobId: document.querySelector("#applyJobId"),
-  jobDetailPanel: document.querySelector("#jobDetailPanel"),
+  authModalTitle: document.querySelector("#authModalTitle"),
+  authModalHelper: document.querySelector("#authModalHelper"),
+  authModeSwitch: document.querySelector("#authModeSwitch"),
+  authRoleSwitch: document.querySelector("#authRoleSwitch"),
+  authLoginMode: document.querySelector("#authLoginMode"),
+  authRegisterMode: document.querySelector("#authRegisterMode"),
+  authForm: document.querySelector("#authForm"),
+  authName: document.querySelector("#authName"),
+  authEmail: document.querySelector("#authEmail"),
+  authPassword: document.querySelector("#authPassword"),
+  togglePasswordButton: document.querySelector("#togglePasswordButton"),
+  passwordHelper: document.querySelector("#passwordHelper"),
+  authCompanyName: document.querySelector("#authCompanyName"),
+  authSubmitButton: document.querySelector("#authSubmitButton"),
+  authStatus: document.querySelector("#authStatus"),
+  authDemoHint: document.querySelector("#authDemoHint"),
+  forgotPasswordPanel: document.querySelector("#forgotPasswordPanel"),
+  forgotPasswordButton: document.querySelector("#forgotPasswordButton"),
+  passwordRecoveryPanel: document.querySelector("#passwordRecoveryPanel"),
+  forgotPasswordForm: document.querySelector("#forgotPasswordForm"),
+  recoveryEmailInput: document.querySelector("#recoveryEmailInput"),
+  resetPasswordForm: document.querySelector("#resetPasswordForm"),
+  resetTokenInput: document.querySelector("#resetTokenInput"),
+  resetPasswordInput: document.querySelector("#resetPasswordInput"),
+  backToLoginButton: document.querySelector("#backToLoginButton"),
+  resetStatus: document.querySelector("#resetStatus"),
   jobModal: document.querySelector("#jobModal"),
   closeModalButton: document.querySelector("#closeModalButton"),
   modalBackdrop: document.querySelector("[data-close-modal]"),
+  jobDetailPanel: document.querySelector("#jobDetailPanel"),
+  applyPanel: document.querySelector("#applyPanel"),
+  alreadyAppliedNotice: document.querySelector("#alreadyAppliedNotice"),
+  applyForm: document.querySelector("#applyForm"),
+  applyJobId: document.querySelector("#applyJobId"),
+  applyName: document.querySelector("#applyName"),
+  applyEmail: document.querySelector("#applyEmail"),
+  applyPhone: document.querySelector("#applyPhone"),
+  applyCvFile: document.querySelector("#applyCvFile"),
+  cvUploadModeButton: document.querySelector("#cvUploadModeButton"),
+  cvBuilderModeButton: document.querySelector("#cvBuilderModeButton"),
+  cvUploadPanel: document.querySelector("#cvUploadPanel"),
+  cvBuilderPanel: document.querySelector("#cvBuilderPanel"),
+  cvBuilderPhoto: document.querySelector("#cvBuilderPhoto"),
+  cvBuilderProgram: document.querySelector("#cvBuilderProgram"),
+  cvBuilderStudentId: document.querySelector("#cvBuilderStudentId"),
+  cvBuilderLocation: document.querySelector("#cvBuilderLocation"),
+  cvBuilderAddress: document.querySelector("#cvBuilderAddress"),
+  cvBuilderLinkedin: document.querySelector("#cvBuilderLinkedin"),
+  cvBuilderGithub: document.querySelector("#cvBuilderGithub"),
+  cvBuilderEducationList: document.querySelector("#cvBuilderEducationList"),
+  cvBuilderSkillsList: document.querySelector("#cvBuilderSkillsList"),
+  cvBuilderProjectsList: document.querySelector("#cvBuilderProjectsList"),
+  cvBuilderAchievementsList: document.querySelector("#cvBuilderAchievementsList"),
+  cvBuilderActivitiesList: document.querySelector("#cvBuilderActivitiesList"),
+  cvBuilderReferencesList: document.querySelector("#cvBuilderReferencesList"),
+  addEducationButton: document.querySelector("#addEducationButton"),
+  addSkillCategoryButton: document.querySelector("#addSkillCategoryButton"),
+  addProjectButton: document.querySelector("#addProjectButton"),
+  addAchievementButton: document.querySelector("#addAchievementButton"),
+  addActivityButton: document.querySelector("#addActivityButton"),
+  addReferenceButton: document.querySelector("#addReferenceButton"),
+  previewCvBuilderButton: document.querySelector("#previewCvBuilderButton"),
+  downloadCvBuilderButton: document.querySelector("#downloadCvBuilderButton"),
+  useGeneratedCvButton: document.querySelector("#useGeneratedCvButton"),
+  resetCvBuilderButton: document.querySelector("#resetCvBuilderButton"),
+  cvBuilderStatus: document.querySelector("#cvBuilderStatus"),
+  cvBuilderPreview: document.querySelector("#cvBuilderPreview"),
+  applyStatus: document.querySelector("#applyStatus"),
   cvModal: document.querySelector("#cvModal"),
   closeCvModalButton: document.querySelector("#closeCvModalButton"),
   cvModalBackdrop: document.querySelector("[data-close-cv-modal]"),
   cvPreviewFrame: document.querySelector("#cvPreviewFrame"),
   cvModalStatus: document.querySelector("#cvModalStatus"),
   downloadCvButton: document.querySelector("#downloadCvButton"),
-  menuButton: document.querySelector("#menuButton"),
-  siteNav: document.querySelector("#siteNav")
+  toast: document.querySelector("#toast")
 };
 
 function escapeHtml(value) {
@@ -160,230 +249,113 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function normalizeEmployerEmail(value) {
-  return String(value || "").trim().toLowerCase();
+function normalizeRole(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  const roleMap = {
+    EMPLOYEE: "JOB_SEEKER",
+    JOBSEEKER: "JOB_SEEKER",
+    JOB_SEEKER: "JOB_SEEKER",
+    EMPLOYER: "EMPLOYER",
+    ADMIN: "ADMIN",
+    PUBLIC: "PUBLIC"
+  };
+
+  return roleMap[normalized] || "PUBLIC";
 }
 
-function normalizeEmployeeEmail(value) {
-  return String(value || "").trim().toLowerCase();
+function roleLabel(role = state.currentRole) {
+  const labels = {
+    PUBLIC: "Public Visitor",
+    JOB_SEEKER: "Job Seeker",
+    EMPLOYER: "Employer",
+    ADMIN: "Admin"
+  };
+
+  return labels[normalizeRole(role)] || "Public Visitor";
 }
 
-function hasEmployeeSession() {
-  return Boolean(
-    state.employeeSession.accessToken
-    || state.employeeSession.employeeEmail
-  );
+function isAuthenticated() {
+  return Boolean(state.authToken && state.currentUser);
 }
 
-function hasEmployeeToken() {
-  return Boolean(state.employeeSession.accessToken);
-}
-
-function getEmployeeAuthHeaders() {
-  if (!hasEmployeeToken()) {
+function getAuthHeaders() {
+  if (!state.authToken) {
     return {};
   }
 
   return {
-    authorization: `Bearer ${state.employeeSession.accessToken}`
+    authorization: `Bearer ${state.authToken}`
   };
 }
 
-function setEmployeeSession(employeeEmail, accessToken = "", tokenExpiresAt = "", displayName = "") {
-  state.employeeSession = {
-    employeeEmail: normalizeEmployeeEmail(employeeEmail),
-    displayName: String(displayName || "").trim(),
-    accessToken: String(accessToken || "").trim(),
-    tokenExpiresAt: String(tokenExpiresAt || "").trim()
-  };
-
-  if (elements.employeeEmail) {
-    elements.employeeEmail.value = state.employeeSession.employeeEmail;
-  }
-
-  const persistedValue = JSON.stringify(state.employeeSession);
-  window.localStorage.setItem("careerBridgeEmployeeSession", persistedValue);
-
-  syncEmployeeAuthControls();
-  applyEmployeeSessionToForm();
-}
-
-function loadEmployeeSession() {
-  const rawValue = window.localStorage.getItem("careerBridgeEmployeeSession");
-
-  if (!rawValue) {
-    setEmployeeSession("", "", "", "");
+function setFormStatus(element, message, tone = "") {
+  if (!element) {
     return;
   }
 
-  try {
-    const parsed = JSON.parse(rawValue);
-    setEmployeeSession(
-      parsed.employeeEmail,
-      parsed.accessToken,
-      parsed.tokenExpiresAt,
-      parsed.displayName
-    );
-  } catch (_error) {
-    setEmployeeSession("", "", "", "");
+  element.classList.remove("success", "error");
+  element.textContent = message || "";
+
+  if (tone) {
+    element.classList.add(tone);
   }
 }
 
-function clearEmployeeSession() {
-  setEmployeeSession("", "", "", "");
-}
-
-function syncEmployeeAuthControls() {
-  if (!elements.employeeLogoutButton) {
-    syncHeaderAuthControls();
+function showToast(message, tone = "") {
+  if (!elements.toast) {
     return;
   }
 
-  elements.employeeLogoutButton.disabled = !hasEmployeeSession();
-  syncHeaderAuthControls();
+  elements.toast.classList.remove("success", "error");
+  elements.toast.textContent = message;
+  elements.toast.hidden = false;
+
+  if (tone) {
+    elements.toast.classList.add(tone);
+  }
+
+  window.clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = window.setTimeout(() => {
+    elements.toast.hidden = true;
+  }, 3600);
 }
 
-function applyEmployeeSessionToForm() {
-  if (elements.applyEmail && hasEmployeeSession()) {
-    elements.applyEmail.value = state.employeeSession.employeeEmail;
-  }
-}
+function getFriendlyErrorMessage(error, fallback = "Request failed.") {
+  const message = error?.message || fallback;
 
-function hasEmployerSession() {
-  return Boolean(
-    state.employerSession.accessToken
-    || (
-      state.employerSession.employerEmail
-      && state.employerSession.employerKey
-    )
-  );
-}
-
-function hasEmployerToken() {
-  return Boolean(state.employerSession.accessToken);
-}
-
-function getEmployerAuthHeaders() {
-  if (hasEmployerToken()) {
-    return {
-      authorization: `Bearer ${state.employerSession.accessToken}`
-    };
+  if (message === "Internal server error") {
+    return "Backend could not complete the request. Check that PostgreSQL is running and migrations/seed data are applied.";
   }
 
-  if (!hasEmployerSession()) {
-    return {};
+  if (/database is not available/i.test(message)) {
+    return "Database is not available. Run: docker compose up -d db, then cd backend && npm run prisma:migrate && npm run prisma:seed";
   }
 
-  return {
-    "x-employer-email": state.employerSession.employerEmail,
-    "x-employer-key": state.employerSession.employerKey
-  };
-}
-
-function setEmployerSession(employerEmail, employerKey, accessToken = "", tokenExpiresAt = "") {
-  state.employerSession = {
-    employerEmail: normalizeEmployerEmail(employerEmail),
-    employerKey: String(employerKey || "").trim(),
-    accessToken: String(accessToken || "").trim(),
-    tokenExpiresAt: String(tokenExpiresAt || "").trim()
-  };
-
-  if (elements.employerEmail) {
-    elements.employerEmail.value = state.employerSession.employerEmail;
+  if (/database tables are missing/i.test(message)) {
+    return "Database tables are missing. Run: cd backend && npm run prisma:migrate && npm run prisma:seed";
   }
 
-  if (elements.employerKey) {
-    elements.employerKey.value = state.employerSession.employerKey;
+  if (/demo account not found/i.test(message)) {
+    return "Demo account not found. In Terminal run: cd backend && npm run prisma:seed";
   }
 
-  const persistedValue = JSON.stringify(state.employerSession);
-  window.localStorage.setItem("careerBridgeEmployerSession", persistedValue);
-  syncEmployerAuthControls();
-}
-
-function syncEmployerAuthControls() {
-  if (!elements.employerLogoutButton) {
-    syncHeaderAuthControls();
-    return;
+  if (/invalid credentials for this role/i.test(message)) {
+    return "This account exists under a different role. Choose the correct role tab and try again.";
   }
 
-  elements.employerLogoutButton.disabled = !hasEmployerSession();
-  syncHeaderAuthControls();
-}
-
-function getHeaderAuthSummaryText() {
-  const hasEmployee = hasEmployeeSession();
-  const hasEmployer = hasEmployerSession();
-
-  if (hasEmployee && hasEmployer) {
-    return "Employee + Employer signed in";
+  if (/invalid demo credentials/i.test(message)) {
+    return "Demo login uses password demo1234. Also make sure the selected role matches the email.";
   }
 
-  if (hasEmployer) {
-    return "Employer signed in";
+  if (/invalid credentials/i.test(message)) {
+    return "Email or password is incorrect. Check the account and try again.";
   }
 
-  if (hasEmployee) {
-    return "Employee signed in";
+  if (/already applied/i.test(message)) {
+    return "You have already applied for this job. I marked it as Applied here too.";
   }
 
-  return "Not signed in";
-}
-
-function syncHeaderAuthControls() {
-  if (elements.authQuickStatus) {
-    elements.authQuickStatus.textContent = getHeaderAuthSummaryText();
-  }
-
-  if (elements.openAuthModalButtonLabel) {
-    const hasAnySession = hasEmployeeSession() || hasEmployerSession();
-    elements.openAuthModalButtonLabel.textContent = hasAnySession ? "Account" : "Login";
-  }
-
-  if (elements.openAuthModalButton) {
-    const hasAnySession = hasEmployeeSession() || hasEmployerSession();
-    elements.openAuthModalButton.classList.toggle("active", hasAnySession);
-  }
-}
-
-function loadEmployerSession() {
-  const rawValue = window.localStorage.getItem("careerBridgeEmployerSession");
-
-  if (!rawValue) {
-    setEmployerSession("", "");
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue);
-    setEmployerSession(
-      parsed.employerEmail,
-      parsed.employerKey,
-      parsed.accessToken,
-      parsed.tokenExpiresAt
-    );
-  } catch (_error) {
-    setEmployerSession("", "", "", "");
-  }
-}
-
-function clearEmployerSession() {
-  setEmployerSession("", "", "", "");
-}
-
-function normalizeRequirements(requirements) {
-  if (Array.isArray(requirements)) {
-    return requirements.map((item) => String(item).trim()).filter(Boolean);
-  }
-
-  if (typeof requirements !== "string") {
-    return [];
-  }
-
-  return requirements
-    .split(/\n|,/) 
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return message;
 }
 
 function formatDate(value) {
@@ -403,7 +375,7 @@ function formatDate(value) {
   });
 }
 
-function truncateText(value, maxLength = 120) {
+function truncateText(value, maxLength = 130) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
 
   if (normalized.length <= maxLength) {
@@ -413,6 +385,18 @@ function truncateText(value, maxLength = 120) {
   return `${normalized.slice(0, maxLength - 1).trim()}...`;
 }
 
+function normalizeList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
 function getInitials(value) {
   return String(value || "CB")
     .split(/\s+/)
@@ -420,180 +404,6 @@ function getInitials(value) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("") || "CB";
-}
-
-async function requestJson(path, options = {}) {
-  const response = await fetchWithTimeout(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const requestError = new Error(payload.message || "Request failed");
-    requestError.status = response.status;
-    throw requestError;
-  }
-
-  return payload;
-}
-
-async function fetchWithTimeout(url, options = {}) {
-  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, {
-      ...fetchOptions,
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (error && error.name === "AbortError") {
-      throw new Error("Request timed out. Please try again.");
-    }
-
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-function setApiStatus(online, message = "") {
-  if (!elements.apiStatus || !elements.apiHint) {
-    return;
-  }
-
-  elements.apiStatus.classList.remove("online", "offline");
-
-  if (online) {
-    elements.apiStatus.classList.add("online");
-    elements.apiStatus.textContent = "Backend connected";
-    elements.apiHint.textContent = "Live API mode is active.";
-    return;
-  }
-
-  elements.apiStatus.classList.add("offline");
-  elements.apiStatus.textContent = "Offline demo mode";
-  elements.apiHint.textContent = message || "Start backend at localhost:4000 for full mode.";
-}
-
-function createSalaryCard(item) {
-  const trendLabel = item.trend || "Market signal";
-  const trendIcon = /high|growing/i.test(trendLabel)
-    ? "fa-arrow-trend-up"
-    : "fa-chart-simple";
-
-  return `
-    <article class="card salary-card">
-      <div class="salary-card-top">
-        <div>
-          <p class="eyebrow">Compensation</p>
-          <h3>${escapeHtml(item.role)}</h3>
-        </div>
-        <span class="icon-bubble"><i class="fa-solid ${trendIcon}" aria-hidden="true"></i></span>
-      </div>
-      <p class="salary-value">${escapeHtml(item.salaryRange)}</p>
-      <p>${escapeHtml(item.level || "Role benchmark")}</p>
-      <span class="badge success">${escapeHtml(trendLabel)}</span>
-    </article>
-  `;
-}
-
-function createJobCard(job) {
-  const requirements = normalizeRequirements(job.requirements);
-  const requirementPreview = requirements.length
-    ? truncateText(requirements.slice(0, 2).join(" • "), 120)
-    : "Requirements will be shared by the employer.";
-
-  return `
-    <article class="job-card">
-      <div class="job-card-top">
-        <div>
-          <h3>${escapeHtml(job.title)}</h3>
-          <p><strong>${escapeHtml(job.company)}</strong></p>
-        </div>
-        <span class="icon-bubble" aria-hidden="true">${escapeHtml(getInitials(job.company))}</span>
-      </div>
-      <div class="job-meta-list">
-        <span class="meta-pill"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${escapeHtml(job.location || "Bangladesh")}</span>
-        <span class="meta-pill"><i class="fa-solid fa-briefcase" aria-hidden="true"></i>${escapeHtml(job.type || "Not specified")}</span>
-        <span class="meta-pill"><i class="fa-regular fa-calendar" aria-hidden="true"></i>${escapeHtml(formatDate(job.postedAt))}</span>
-      </div>
-      <p class="job-salary">${escapeHtml(job.salary || "Salary negotiable")}</p>
-      <p class="requirements-preview">${escapeHtml(requirementPreview)}</p>
-      <div class="job-actions">
-        <button class="btn-action" type="button" data-action="details" data-id="${job.id}">
-          <i class="fa-regular fa-eye" aria-hidden="true"></i>Details
-        </button>
-        <button class="btn-action strong" type="button" data-action="apply" data-id="${job.id}">
-          <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>Apply
-        </button>
-      </div>
-    </article>
-  `;
-}
-
-function createListingItem(job) {
-  return `
-    <article class="listing-item">
-      <div class="listing-top">
-        <div>
-          <h3>${escapeHtml(job.title)}</h3>
-          <p>${escapeHtml(job.company)} | ${escapeHtml(job.location)} | ${escapeHtml(job.type)}</p>
-        </div>
-        <span class="badge">Live</span>
-      </div>
-      <p>${escapeHtml(job.salary)}</p>
-      <div class="listing-actions">
-        <button class="btn-action danger" type="button" data-action="delete-job" data-id="${job.id}">
-          <i class="fa-regular fa-trash-can" aria-hidden="true"></i>Remove
-        </button>
-      </div>
-    </article>
-  `;
-}
-
-function createApplicationItem(application) {
-  const job = state.jobs.find((item) => item.id === application.jobId);
-  const roleLabel = job ? `${job.title} (${job.company})` : `Job #${application.jobId}`;
-  const hasLocalBlob = Boolean(application.cvUrl && String(application.cvUrl).startsWith("blob:"));
-  const canViewCv = Boolean(application.canViewCv || hasLocalBlob);
-  const coverPreview = truncateText(application.coverLetter || "No cover letter provided.", 150);
-  const cvActionMarkup = canViewCv
-    ? `
-      <div class="application-actions">
-        <button class="btn-action cv-link" type="button" data-action="view-cv" data-id="${application.id}">
-          <i class="fa-regular fa-file-lines" aria-hidden="true"></i>Preview CV
-        </button>
-        <button class="btn-action" type="button" data-action="download-cv" data-id="${application.id}">
-          <i class="fa-solid fa-download" aria-hidden="true"></i>Download
-        </button>
-      </div>
-    `
-    : "<p>CV hidden. Sign in as the job owner to view.</p>";
-
-  return `
-    <article class="application-item">
-      <div class="application-top">
-        <div>
-          <h3>${escapeHtml(application.applicantName)}</h3>
-          <p><strong>${escapeHtml(roleLabel)}</strong></p>
-        </div>
-        <span class="badge">Submitted ${escapeHtml(formatDate(application.createdAt))}</span>
-      </div>
-      <div class="application-contact">
-        <span class="meta-pill"><i class="fa-regular fa-envelope" aria-hidden="true"></i>${escapeHtml(application.applicantEmail)}</span>
-        ${application.applicantPhone ? `<span class="meta-pill"><i class="fa-solid fa-phone" aria-hidden="true"></i>${escapeHtml(application.applicantPhone)}</span>` : ""}
-      </div>
-      <p class="cover-preview">${escapeHtml(coverPreview)}</p>
-      ${cvActionMarkup}
-    </article>
-  `;
 }
 
 function getSafeFileName(value, fallback = "cv-file") {
@@ -608,16 +418,12 @@ function parseFileNameFromDisposition(dispositionValue) {
   }
 
   const utfMatch = dispositionValue.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utfMatch && utfMatch[1]) {
+  if (utfMatch?.[1]) {
     return decodeURIComponent(utfMatch[1]);
   }
 
   const basicMatch = dispositionValue.match(/filename="?([^";]+)"?/i);
-  if (basicMatch && basicMatch[1]) {
-    return basicMatch[1];
-  }
-
-  return "";
+  return basicMatch?.[1] || "";
 }
 
 function triggerFileDownload(fileUrl, fileName) {
@@ -631,93 +437,358 @@ function triggerFileDownload(fileUrl, fileName) {
 }
 
 function isPreviewableCvFile(mimeType, fileName) {
-  const normalizedMime = String(mimeType || "").toLowerCase();
-  if (normalizedMime.includes("pdf")) {
+  return String(mimeType || "").toLowerCase().includes("pdf")
+    || String(fileName || "").toLowerCase().endsWith(".pdf");
+}
+
+function getApplicationJobId(application) {
+  return Number(application?.jobId || application?.job?.id || 0);
+}
+
+function isAlreadyApplied(jobId) {
+  return state.appliedJobIds.has(Number(jobId));
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Request timed out. Please try again.");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function requestJson(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
+  const shouldSendJson = options.body && !isFormData && typeof options.body !== "string";
+  const headers = {
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(options.auth === false ? {} : getAuthHeaders()),
+    ...(options.headers || {})
+  };
+
+  const response = await fetchWithTimeout(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    body: shouldSendJson ? JSON.stringify(options.body) : options.body
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const requestError = new Error(payload.message || "Request failed");
+    requestError.status = response.status;
+    requestError.payload = payload;
+    throw requestError;
+  }
+
+  return payload;
+}
+
+function setApiStatus(online, message = "") {
+  state.apiOnline = online;
+}
+
+function persistSession() {
+  if (!isAuthenticated()) {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    authToken: state.authToken,
+    currentUser: state.currentUser,
+    currentRole: state.currentRole
+  }));
+}
+
+function applySession(authData) {
+  const user = authData.user || {
+    id: authData.id,
+    name: authData.displayName || authData.name || authData.email,
+    email: authData.email,
+    role: normalizeRole(authData.role)
+  };
+
+  state.authToken = String(authData.accessToken || authData.authToken || "").trim();
+  state.currentUser = user;
+  state.currentRole = normalizeRole(user.role || authData.role);
+  persistSession();
+}
+
+function clearSession() {
+  state.currentUser = null;
+  state.authToken = "";
+  state.currentRole = "PUBLIC";
+  state.savedJobs = [];
+  state.savedJobIds = new Set();
+  state.applications = [];
+  state.appliedJobIds = new Set();
+  state.profile = null;
+  state.employerDashboard = null;
+  state.employerCompany = null;
+  state.employerJobs = [];
+  state.employerApplications = [];
+  state.adminStats = null;
+  state.adminUsers = [];
+  state.adminCompanies = [];
+  state.adminJobs = [];
+  state.adminApplications = [];
+  state.adminApplicationFilters = {
+    search: "",
+    status: ""
+  };
+  state.adminReports = [];
+  state.generatedCvFile = null;
+  state.cvMode = "upload";
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+async function loadStoredSession() {
+  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY);
+
+  if (!rawValue) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    state.authToken = String(parsed.authToken || "").trim();
+    state.currentUser = parsed.currentUser || null;
+    state.currentRole = normalizeRole(parsed.currentRole || parsed.currentUser?.role);
+
+    if (!state.authToken || !state.currentUser) {
+      clearSession();
+      return;
+    }
+
+    const response = await requestJson("/api/auth/me");
+    const user = response.data?.user || response.data;
+    state.currentUser = user;
+    state.currentRole = normalizeRole(user?.role);
+    persistSession();
+  } catch (_error) {
+    clearSession();
+  }
+}
+
+function handleAuthError(error) {
+  if (error?.status === 401 || error?.status === 403) {
+    clearSession();
+    renderAll();
+    openAuthModal("login", "JOB_SEEKER");
+    showToast("Your session expired. Please login again.", "error");
     return true;
   }
 
-  const normalizedName = String(fileName || "").toLowerCase();
-  return normalizedName.endsWith(".pdf");
+  return false;
 }
 
-function getFocusableElements(container) {
-  if (!container) {
-    return [];
+async function loadPublicData() {
+  try {
+    const [salaryResponse, jobResponse] = await Promise.all([
+      requestJson("/api/salaries", { auth: false }),
+      requestJson("/api/jobs", { auth: false })
+    ]);
+
+    state.salaries = Array.isArray(salaryResponse.data) ? salaryResponse.data : [];
+    state.jobs = Array.isArray(jobResponse.data) ? jobResponse.data : [];
+    setApiStatus(true);
+  } catch (_error) {
+    state.salaries = [...fallbackSalaries];
+    state.jobs = [...fallbackJobs];
+    setApiStatus(false);
+  }
+}
+
+async function loadJobSeekerData() {
+  const [profileResponse, savedResponse, applicationsResponse] = await Promise.all([
+    requestJson("/api/profile/me"),
+    requestJson("/api/saved-jobs/me"),
+    requestJson("/api/applications/me")
+  ]);
+
+  state.profile = profileResponse.data?.profile || null;
+  state.savedJobs = Array.isArray(savedResponse.data) ? savedResponse.data : [];
+  state.savedJobIds = new Set(state.savedJobs.map((item) => item.jobId || item.job?.id).filter(Boolean));
+  state.applications = Array.isArray(applicationsResponse.data) ? applicationsResponse.data : [];
+  state.appliedJobIds = new Set(state.applications.map(getApplicationJobId).filter(Boolean));
+}
+
+async function loadEmployerData() {
+  const [dashboardResponse, companyResponse, applicationsResponse] = await Promise.all([
+    requestJson("/api/employer/dashboard"),
+    requestJson("/api/employer/company"),
+    requestJson("/api/employer/applications")
+  ]);
+
+  state.employerDashboard = dashboardResponse.data || null;
+  state.employerCompany = companyResponse.data || state.employerDashboard?.company || null;
+  state.employerJobs = Array.isArray(state.employerDashboard?.jobs) ? state.employerDashboard.jobs : [];
+  state.employerApplications = Array.isArray(applicationsResponse.data) ? applicationsResponse.data : [];
+}
+
+async function loadAdminData() {
+  const [
+    statsResponse,
+    usersResponse,
+    companiesResponse,
+    jobsResponse,
+    applicationsResponse,
+    reportsResponse,
+    salaryResponse
+  ] = await Promise.all([
+    requestJson("/api/admin/stats"),
+    requestJson("/api/admin/users?limit=100"),
+    requestJson("/api/admin/companies"),
+    requestJson("/api/admin/jobs?limit=100&status=ALL"),
+    requestJson("/api/admin/applications"),
+    requestJson("/api/admin/reports"),
+    requestJson("/api/salary-insights")
+  ]);
+
+  state.adminStats = statsResponse.data || null;
+  state.adminUsers = Array.isArray(usersResponse.data) ? usersResponse.data : [];
+  state.adminCompanies = Array.isArray(companiesResponse.data) ? companiesResponse.data : [];
+  state.adminJobs = Array.isArray(jobsResponse.data) ? jobsResponse.data : [];
+  state.adminApplications = Array.isArray(applicationsResponse.data) ? applicationsResponse.data : [];
+  state.adminReports = Array.isArray(reportsResponse.data) ? reportsResponse.data : [];
+  state.salaries = Array.isArray(salaryResponse.data) ? salaryResponse.data : state.salaries;
+}
+
+async function loadRoleData() {
+  if (!isAuthenticated()) {
+    return;
   }
 
-  const selectors = [
-    "a[href]",
-    "button:not([disabled])",
-    "input:not([disabled]):not([type='hidden'])",
-    "select:not([disabled])",
-    "textarea:not([disabled])",
-    "iframe",
-    "[tabindex]:not([tabindex='-1'])"
-  ];
-
-  return Array.from(container.querySelectorAll(selectors.join(","))).filter((element) => {
-    if (!(element instanceof HTMLElement) && !(element instanceof HTMLIFrameElement)) {
-      return false;
+  try {
+    if (state.currentRole === "JOB_SEEKER") {
+      await loadJobSeekerData();
+    } else if (state.currentRole === "EMPLOYER") {
+      await loadEmployerData();
+    } else if (state.currentRole === "ADMIN") {
+      await loadAdminData();
     }
+  } catch (error) {
+    if (!handleAuthError(error)) {
+      showToast(error.message || "Could not load dashboard data.", "error");
+    }
+  }
+}
 
-    const ariaHidden = element.getAttribute("aria-hidden") === "true";
-    const hiddenByStyle = window.getComputedStyle(element).display === "none";
-    return !ariaHidden && !hiddenByStyle;
+function renderAll() {
+  renderNavigation();
+  renderRoleSections();
+  renderSalaryCards();
+  renderJobCards();
+  renderJobSeekerDashboard();
+  renderEmployerDashboard();
+  renderAdminDashboard();
+  renderAuthModal();
+}
+
+function renderNavigation() {
+  const navItemsByRole = {
+    PUBLIC: [
+      ["Home", "#home"],
+      ["Jobs", "#jobs"],
+      ["Salaries", "#salaries"],
+      ["For Employers", "#publicEmployers"]
+    ],
+    JOB_SEEKER: [
+      ["Dashboard", "#jobSeekerDashboard"],
+      ["Find Jobs", "#jobs"],
+      ["Saved Jobs", "#savedJobsList"],
+      ["Applications", "#jobSeekerApplications"],
+      ["Profile", "#profilePanel"]
+    ],
+    EMPLOYER: [
+      ["Dashboard", "#employerDashboard"],
+      ["Company", "#companyPanel"],
+      ["Post Job", "#postJobPanel"],
+      ["My Jobs", "#myJobsPanel"],
+      ["Applicants", "#applicantsPanel"]
+    ],
+    ADMIN: [
+      ["Dashboard", "#adminDashboard"],
+      ["Users", "#adminUsersPanel"],
+      ["Companies", "#adminCompaniesPanel"],
+      ["Jobs", "#adminJobsPanel"],
+      ["Applications", "#adminApplicationsPanel"],
+      ["Reports", "#adminReportsPanel"]
+    ]
+  };
+  const homeByRole = {
+    PUBLIC: "#home",
+    JOB_SEEKER: "#jobSeekerDashboard",
+    EMPLOYER: "#employerDashboard",
+    ADMIN: "#adminDashboard"
+  };
+
+  if (elements.siteNav) {
+    elements.siteNav.innerHTML = (navItemsByRole[state.currentRole] || navItemsByRole.PUBLIC)
+      .map(([label, href]) => `<a href="${href}">${escapeHtml(label)}</a>`)
+      .join("");
+  }
+
+  if (elements.brandHome) {
+    elements.brandHome.setAttribute("href", homeByRole[state.currentRole] || "#home");
+  }
+
+  if (elements.authQuickStatus) {
+    elements.authQuickStatus.textContent = isAuthenticated()
+      ? `${roleLabel()} - ${state.currentUser?.name || state.currentUser?.email}`
+      : "Not signed in";
+  }
+
+  if (elements.loginButton) {
+    elements.loginButton.hidden = isAuthenticated();
+  }
+
+  if (elements.registerButton) {
+    elements.registerButton.hidden = isAuthenticated();
+  }
+
+  if (elements.logoutButton) {
+    elements.logoutButton.hidden = !isAuthenticated();
+  }
+}
+
+function renderRoleSections() {
+  document.querySelectorAll("[data-visible-roles]").forEach((section) => {
+    const roles = String(section.dataset.visibleRoles || "")
+      .split(",")
+      .map((item) => item.trim());
+    const shouldShow = roles.includes(state.currentRole);
+    section.hidden = !shouldShow;
+
+    if (shouldShow) {
+      section.classList.add("in-view");
+    }
   });
 }
 
-function trapFocusInModal(modalElement, event) {
-  if (event.key !== "Tab") {
-    return;
-  }
-
-  const focusable = getFocusableElements(modalElement);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  const active = document.activeElement;
-
-  if (event.shiftKey) {
-    if (active === first || !modalElement.contains(active)) {
-      event.preventDefault();
-      last.focus();
-    }
-    return;
-  }
-
-  if (active === last || !modalElement.contains(active)) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-function setCvReturnFocus(targetElement) {
-  if (targetElement instanceof HTMLElement) {
-    state.cvPreview.returnFocus = targetElement;
-    return;
-  }
-
-  if (document.activeElement instanceof HTMLElement) {
-    state.cvPreview.returnFocus = document.activeElement;
-    return;
-  }
-
-  state.cvPreview.returnFocus = null;
-}
-
-function focusCvModalPrimaryAction() {
-  if (!elements.cvModal || elements.cvModal.hidden) {
-    return;
-  }
-
-  const focusable = getFocusableElements(elements.cvModal);
-  if (focusable.length > 0) {
-    focusable[0].focus();
-  }
+function createStatCard(label, value, _icon = "fa-chart-simple", tone = "") {
+  return `
+    <article class="stat-card ${tone}">
+      <div>
+        <p>${escapeHtml(label)}</p>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    </article>
+  `;
 }
 
 function renderSalaryCards() {
@@ -725,7 +796,26 @@ function renderSalaryCards() {
     return;
   }
 
-  elements.salaryGrid.innerHTML = state.salaries.map(createSalaryCard).join("");
+  elements.salaryGrid.innerHTML = state.salaries.slice(0, 6).map((item) => {
+    const title = item.role || item.roleTitle || "Role";
+    const salaryRange = item.salaryRange || "Salary benchmark";
+    const level = item.level || item.experienceLevel || "Role benchmark";
+    const trendLabel = item.trend || item.source || "Market signal";
+
+    return `
+      <article class="card salary-card">
+        <div class="salary-card-top">
+          <div>
+            <p class="eyebrow">Compensation</p>
+            <h3>${escapeHtml(title)}</h3>
+          </div>
+        </div>
+        <p class="salary-value">${escapeHtml(salaryRange)}</p>
+        <p>${escapeHtml(level)}</p>
+        <span class="badge success">${escapeHtml(trendLabel)}</span>
+      </article>
+    `;
+  }).join("");
 }
 
 function getFilteredJobs() {
@@ -736,9 +826,97 @@ function getFilteredJobs() {
   }
 
   return state.jobs.filter((job) => {
-    const combined = `${job.title} ${job.company} ${job.location}`.toLowerCase();
+    const combined = `${job.title} ${job.company} ${job.location} ${job.type || job.jobType}`.toLowerCase();
     return combined.includes(value);
   });
+}
+
+function isEmployerOwnerOfJob(job) {
+  if (state.currentRole !== "EMPLOYER") {
+    return false;
+  }
+
+  return state.employerJobs.some((item) => item.id === job.id);
+}
+
+function createJobCard(job) {
+  const requirements = normalizeList(job.requirements);
+  const requirementPreview = requirements.length
+    ? truncateText(requirements.slice(0, 2).join(" - "), 120)
+    : "Requirements will be shared by the employer.";
+  const isSaved = state.savedJobIds.has(job.id);
+  const hasApplied = isAlreadyApplied(job.id);
+  const companyName = job.company || job.companyProfile?.name || "Company";
+  let actionMarkup = `
+    <button class="btn-action" type="button" data-action="details" data-id="${job.id}">
+      <i class="fa-regular fa-eye" aria-hidden="true"></i>Details
+    </button>
+  `;
+
+  if (["PUBLIC", "JOB_SEEKER"].includes(state.currentRole)) {
+    actionMarkup += `
+      <button class="btn-action" type="button" data-action="report-job" data-id="${job.id}">
+        <i class="fa-regular fa-flag" aria-hidden="true"></i>Report
+      </button>
+    `;
+  }
+
+  if (state.currentRole === "PUBLIC") {
+    actionMarkup += `
+      <button class="btn-action strong" type="button" data-action="login-to-apply" data-id="${job.id}">
+        <i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i>Login to Apply
+      </button>
+    `;
+  } else if (state.currentRole === "JOB_SEEKER") {
+    actionMarkup += hasApplied
+      ? `
+      <button class="btn-action applied" type="button" data-action="applied" data-id="${job.id}" disabled aria-disabled="true">
+        <i class="fa-solid fa-circle-check" aria-hidden="true"></i>Applied
+      </button>
+    `
+      : `
+      <button class="btn-action strong" type="button" data-action="apply" data-id="${job.id}">
+        <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>Apply
+      </button>
+    `;
+    actionMarkup += `
+      <button class="btn-action" type="button" data-action="save-job" data-id="${job.id}">
+        <i class="${isSaved ? "fa-solid" : "fa-regular"} fa-bookmark" aria-hidden="true"></i>${isSaved ? "Saved" : "Save"}
+      </button>
+    `;
+  } else if (state.currentRole === "EMPLOYER" && isEmployerOwnerOfJob(job)) {
+    actionMarkup += `
+      <a class="btn-action" href="#myJobsPanel">
+        <i class="fa-solid fa-briefcase" aria-hidden="true"></i>Manage
+      </a>
+    `;
+  } else if (state.currentRole === "ADMIN") {
+    actionMarkup += `
+      <a class="btn-action" href="#adminJobsPanel">
+        <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>Moderate
+      </a>
+    `;
+  }
+
+  return `
+    <article class="job-card">
+      <div class="job-card-top">
+        <div>
+          <h3>${escapeHtml(job.title)}</h3>
+          <p><strong>${escapeHtml(companyName)}</strong></p>
+        </div>
+        <span class="icon-bubble" aria-hidden="true">${escapeHtml(getInitials(companyName))}</span>
+      </div>
+      <div class="job-meta-list">
+        <span class="meta-pill"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${escapeHtml(job.location || "Bangladesh")}</span>
+        <span class="meta-pill"><i class="fa-solid fa-briefcase" aria-hidden="true"></i>${escapeHtml(job.type || job.jobType || "Not specified")}</span>
+        <span class="meta-pill"><i class="fa-regular fa-calendar" aria-hidden="true"></i>${escapeHtml(formatDate(job.postedAt || job.createdAt))}</span>
+      </div>
+      <p class="job-salary">${escapeHtml(job.salary || "Salary negotiable")}</p>
+      <p class="requirements-preview">${escapeHtml(requirementPreview)}</p>
+      <div class="job-actions">${actionMarkup}</div>
+    </article>
+  `;
 }
 
 function renderJobCards() {
@@ -752,173 +930,1510 @@ function renderJobCards() {
     elements.jobCount.textContent = String(filteredJobs.length);
   }
 
+  if (elements.jobSectionHint) {
+    elements.jobSectionHint.textContent = state.currentRole === "JOB_SEEKER"
+      ? "Save jobs, apply with a CV, and track status from your dashboard."
+      : "Public visitors can view jobs. Sign in as a Job Seeker to apply or save roles.";
+  }
+
   if (filteredJobs.length === 0) {
-    elements.jobList.innerHTML = `
-      <article class="empty-state">
-        <span class="icon-bubble"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span>
-        <h3>No result found</h3>
-        <p>Try another keyword like role, company, or city.</p>
-      </article>
-    `;
+    elements.jobList.innerHTML = createEmptyState("No result found", "Try another keyword like role, company, or city.", "fa-magnifying-glass");
     return;
   }
 
   elements.jobList.innerHTML = filteredJobs.map(createJobCard).join("");
 }
 
-function getManagedJobs() {
-  if (!hasEmployerSession()) {
-    return [];
+function createEmptyState(title, description, _icon = "fa-circle-info") {
+  return `
+    <article class="empty-state">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(description)}</p>
+    </article>
+  `;
+}
+
+function getJobById(jobId) {
+  return state.jobs.find((job) => job.id === jobId)
+    || state.employerJobs.find((job) => job.id === jobId)
+    || state.adminJobs.find((job) => job.id === jobId)
+    || null;
+}
+
+function statusBadge(status) {
+  const normalized = String(status || "SUBMITTED").toUpperCase();
+  return `<span class="badge status-badge status-${normalized.toLowerCase()}">${escapeHtml(normalized.replaceAll("_", " "))}</span>`;
+}
+
+function fillForm(form, values = {}) {
+  if (!form) {
+    return;
   }
 
-  if (state.apiOnline) {
-    return state.jobs.filter((job) => state.managedJobIds.has(job.id));
-  }
+  Array.from(form.elements).forEach((element) => {
+    if (!element.name || element.type === "submit") {
+      return;
+    }
 
-  return state.jobs.filter((job) => {
-    const ownerEmail = normalizeEmployerEmail(job.employerEmail);
-    const ownerKey = String(job.employerKey || "").trim();
-
-    return ownerEmail === state.employerSession.employerEmail
-      && ownerKey === state.employerSession.employerKey;
+    const value = values[element.name];
+    element.value = value === undefined || value === null ? "" : String(value);
   });
 }
 
-function renderListings() {
-  if (!elements.listingGrid) {
+function renderJobSeekerDashboard() {
+  if (state.currentRole !== "JOB_SEEKER") {
     return;
   }
 
-  if (!hasEmployerSession()) {
-    elements.listingGrid.innerHTML = `
-      <article class="empty-state">
-        <p>Sign in with employer email and access key to manage listings.</p>
-      </article>
-    `;
-    return;
+  const completion = state.profile?.completion || 0;
+  const savedCount = state.savedJobs.length;
+  const appliedCount = state.applications.length;
+  const interviewCount = state.applications.filter((item) => ["SHORTLISTED", "INTERVIEW"].includes(item.status)).length;
+
+  if (elements.jobSeekerWelcome) {
+    elements.jobSeekerWelcome.textContent = `Welcome, ${state.currentUser?.name || "Job Seeker"}.`;
   }
 
-  const managedJobs = getManagedJobs();
-
-  if (managedJobs.length === 0) {
-    elements.listingGrid.innerHTML = `
-      <article class="empty-state">
-        <p>No active job listings found for this employer account.</p>
-      </article>
-    `;
-    return;
+  if (elements.jobSeekerStats) {
+    elements.jobSeekerStats.innerHTML = [
+      createStatCard("Profile completion", `${completion}%`, "fa-user-check", completion >= 70 ? "success" : ""),
+      createStatCard("Saved jobs", savedCount, "fa-bookmark"),
+      createStatCard("Applications", appliedCount, "fa-paper-plane"),
+      createStatCard("Active leads", interviewCount, "fa-list-check")
+    ].join("");
   }
 
-  elements.listingGrid.innerHTML = managedJobs.map(createListingItem).join("");
+  if (elements.profileForm) {
+    fillForm(elements.profileForm, {
+      headline: state.profile?.headline,
+      phone: state.profile?.phone,
+      location: state.profile?.location,
+      skills: (state.profile?.skills || []).join(", "),
+      bio: state.profile?.bio,
+      portfolioUrl: state.profile?.portfolioUrl,
+      githubUrl: state.profile?.githubUrl
+    });
+  }
+
+  if (elements.jobSeekerApplications) {
+    elements.jobSeekerApplications.innerHTML = state.applications.length
+      ? state.applications.map((application) => {
+        const job = application.job || {};
+        return `
+          <article class="application-item">
+            <div class="application-top">
+              <div>
+                <h3>${escapeHtml(application.jobTitle || job.title || "Application")}</h3>
+                <p><strong>${escapeHtml(application.company || job.company || job.companyProfile?.name || "Company")}</strong></p>
+              </div>
+              ${statusBadge(application.status)}
+            </div>
+            <p class="cover-preview">${escapeHtml(truncateText(application.coverLetter || "No cover letter provided.", 140))}</p>
+            <p class="helper-note">Submitted ${escapeHtml(formatDate(application.createdAt))}</p>
+          </article>
+        `;
+      }).join("")
+      : createEmptyState("No applications yet", "Apply to an open role and your status will appear here.", "fa-paper-plane");
+  }
+
+  if (elements.savedJobsList) {
+    elements.savedJobsList.innerHTML = state.savedJobs.length
+      ? state.savedJobs.map((savedJob) => createJobCard(savedJob.job || savedJob)).join("")
+      : createEmptyState("No saved jobs yet", "Use Save on a job card to build your shortlist.", "fa-bookmark");
+  }
 }
 
-function renderApplications() {
-  if (!elements.applicationList) {
-    return;
-  }
+function createEmployerJobItem(job) {
+  return `
+    <article class="listing-item">
+      <div class="listing-top">
+        <div>
+          <h3>${escapeHtml(job.title)}</h3>
+          <p>${escapeHtml(job.company || job.companyProfile?.name || "Company")} | ${escapeHtml(job.location)} | ${escapeHtml(job.type || job.jobType)}</p>
+        </div>
+        ${statusBadge(job.status || "OPEN")}
+      </div>
+      <p>${escapeHtml(job.salary || "Salary negotiable")}</p>
+      <p class="helper-note">${Number(job.applicationCount || 0)} applicants</p>
+      <div class="listing-actions">
+        <button class="btn-action" type="button" data-action="employer-job-status" data-id="${job.id}" data-status="OPEN">
+          <i class="fa-solid fa-circle-play" aria-hidden="true"></i>Open
+        </button>
+        <button class="btn-action" type="button" data-action="employer-job-status" data-id="${job.id}" data-status="CLOSED">
+          <i class="fa-solid fa-lock" aria-hidden="true"></i>Close
+        </button>
+        <button class="btn-action danger" type="button" data-action="employer-job-status" data-id="${job.id}" data-status="ARCHIVED">
+          <i class="fa-regular fa-trash-can" aria-hidden="true"></i>Archive
+        </button>
+      </div>
+    </article>
+  `;
+}
 
-  if (!hasEmployerSession()) {
-    elements.applicationList.innerHTML = `
-      <article class="empty-state">
-        <p>Sign in as employer to view applications and CV files.</p>
-      </article>
-    `;
-    return;
-  }
-
-  if (state.applications.length === 0) {
-    elements.applicationList.innerHTML = `
-      <article class="empty-state">
-        <p>No applications found for this employer account.</p>
-      </article>
-    `;
-    return;
-  }
-
-  elements.applicationList.innerHTML = state.applications
-    .slice(0, 12)
-    .map(createApplicationItem)
+function createEmployerApplicationItem(application) {
+  const statusOptions = applicationStatuses
+    .map((status) => `<option value="${status}" ${application.status === status ? "selected" : ""}>${status.replaceAll("_", " ")}</option>`)
     .join("");
+
+  return `
+    <article class="application-item">
+      <div class="application-top">
+        <div>
+          <h3>${escapeHtml(application.applicantName || "Applicant")}</h3>
+          <p><strong>${escapeHtml(application.jobTitle || application.job?.title || "Job")}</strong> - ${escapeHtml(application.company || application.job?.company || application.job?.companyProfile?.name || "Company")}</p>
+        </div>
+        ${statusBadge(application.status)}
+      </div>
+      <div class="application-contact">
+        <span class="meta-pill"><i class="fa-regular fa-envelope" aria-hidden="true"></i>${escapeHtml(application.applicantEmail || "No email")}</span>
+        ${application.applicantPhone ? `<span class="meta-pill"><i class="fa-solid fa-phone" aria-hidden="true"></i>${escapeHtml(application.applicantPhone)}</span>` : ""}
+      </div>
+      <p class="cover-preview">${escapeHtml(truncateText(application.coverLetter || "No cover letter provided.", 160))}</p>
+      <div class="application-management">
+        <label>
+          Status
+          <select data-action="application-status" data-id="${application.id}">
+            ${statusOptions}
+          </select>
+        </label>
+        <label>
+          Private note
+          <textarea data-note-id="${application.id}" rows="2">${escapeHtml(application.employerNote || "")}</textarea>
+        </label>
+      </div>
+      <div class="application-actions">
+        <button class="btn-action" type="button" data-action="save-note" data-id="${application.id}">
+          <i class="fa-regular fa-floppy-disk" aria-hidden="true"></i>Save Note
+        </button>
+        <button class="btn-action" type="button" data-action="download-cv" data-id="${application.id}">
+          <i class="fa-solid fa-download" aria-hidden="true"></i>CV
+        </button>
+      </div>
+    </article>
+  `;
 }
 
-function setFormStatus(element, message, tone = "") {
-  if (!element) {
+function getApplicationSearchText(application) {
+  return [
+    application.applicantName,
+    application.applicantEmail,
+    application.jobTitle,
+    application.job?.title,
+    application.company,
+    application.job?.company,
+    application.job?.companyProfile?.name
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function getFilteredAdminApplications() {
+  const search = state.adminApplicationFilters.search.trim().toLowerCase();
+  const status = state.adminApplicationFilters.status;
+
+  return state.adminApplications.filter((application) => {
+    const matchesStatus = !status || application.status === status;
+    const matchesSearch = !search || getApplicationSearchText(application).includes(search);
+    return matchesStatus && matchesSearch;
+  });
+}
+
+function createApplicationActionButtons(application, prefix = "admin") {
+  const actions = [
+    ["REVIEWED", "Mark Reviewed"],
+    ["SHORTLISTED", "Shortlist"],
+    ["INTERVIEW", "Move to Interview"],
+    ["REJECTED", "Reject"],
+    ["HIRED", "Hire"]
+  ];
+
+  return actions.map(([status, label]) => `
+    <button class="btn-action ${["REJECTED"].includes(status) ? "danger" : ""}" type="button" data-action="${prefix}-application-status" data-id="${application.id}" data-status="${status}" ${application.status === status ? "disabled" : ""}>
+      ${escapeHtml(label)}
+    </button>
+  `).join("");
+}
+
+function createAdminApplicationCard(application) {
+  return `
+    <article class="application-item shortlist-card">
+      <div class="application-top">
+        <div>
+          <h3>${escapeHtml(application.applicantName || "Applicant")}</h3>
+          <p><strong>${escapeHtml(application.jobTitle || application.job?.title || "Job")}</strong> - ${escapeHtml(application.company || application.job?.company || application.job?.companyProfile?.name || "Company")}</p>
+        </div>
+        ${statusBadge(application.status)}
+      </div>
+      <p class="helper-note">${escapeHtml(application.applicantEmail || "No email")} | Submitted ${escapeHtml(formatDate(application.createdAt))}</p>
+      <div class="application-actions">
+        ${createApplicationActionButtons(application)}
+        <button class="btn-action" type="button" data-action="admin-download-cv" data-id="${application.id}">
+          <i class="fa-solid fa-download" aria-hidden="true"></i>Download CV
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderEmployerDashboard() {
+  if (state.currentRole !== "EMPLOYER") {
     return;
   }
 
-  element.classList.remove("success", "error");
-  element.textContent = message;
+  const counts = state.employerDashboard?.counts || {};
+  const openJobs = state.employerJobs.filter((job) => job.status === "OPEN").length;
 
-  if (tone) {
-    element.classList.add(tone);
+  if (elements.employerWelcome) {
+    elements.employerWelcome.textContent = `Hiring workspace for ${state.employerCompany?.name || state.currentUser?.name || "your company"}.`;
+  }
+
+  if (elements.companyVerificationNotice) {
+    const isVerified = Boolean(state.employerCompany?.verified);
+    elements.companyVerificationNotice.hidden = isVerified;
+    elements.companyVerificationNotice.innerHTML = isVerified
+      ? ""
+      : `
+        <strong>Company verification required</strong>
+        <p>Your company is not verified yet. New jobs will be saved as drafts, and they cannot be opened publicly until an admin verifies the company.</p>
+      `;
+  }
+
+  if (elements.employerStats) {
+    elements.employerStats.innerHTML = [
+      createStatCard("Verification", state.employerCompany?.verified ? "Verified" : "Pending", "fa-circle-check", state.employerCompany?.verified ? "success" : ""),
+      createStatCard("Posted jobs", counts.jobsPosted ?? state.employerJobs.length, "fa-briefcase"),
+      createStatCard("Open jobs", openJobs, "fa-circle-play", "success"),
+      createStatCard("Applicants", counts.applications ?? state.employerApplications.length, "fa-users")
+    ].join("");
+  }
+
+  if (elements.companyForm) {
+    fillForm(elements.companyForm, state.employerCompany || {});
+  }
+
+  if (elements.employerJobsList) {
+    elements.employerJobsList.innerHTML = state.employerJobs.length
+      ? state.employerJobs.map(createEmployerJobItem).join("")
+      : createEmptyState("No jobs posted yet", "Create your first listing from the Post Job form.", "fa-briefcase");
+  }
+
+  if (elements.employerApplicationsList) {
+    elements.employerApplicationsList.innerHTML = state.employerApplications.length
+      ? state.employerApplications.map(createEmployerApplicationItem).join("")
+      : createEmptyState("No applicants yet", "Applications for your own jobs will appear here.", "fa-users");
   }
 }
 
-function syncModalOpenState() {
-  const isJobModalOpen = Boolean(elements.jobModal && !elements.jobModal.hidden);
-  const isCvModalOpen = Boolean(elements.cvModal && !elements.cvModal.hidden);
-  const isAuthModalOpen = Boolean(elements.authModal && !elements.authModal.hidden);
-  document.body.classList.toggle("modal-open", isJobModalOpen || isCvModalOpen || isAuthModalOpen);
+function createTable(headers, rows) {
+  if (!rows.length) {
+    return createEmptyState("Nothing to show", "No records found for this section.", "fa-table");
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>${rows.join("")}</tbody>
+    </table>
+  `;
 }
 
-function setAuthModalRole(role) {
-  const nextRole = role === "employer" ? "employer" : "employee";
-  state.authModalRole = nextRole;
-
-  const isEmployee = nextRole === "employee";
-
-  if (elements.employeeAuthPanel) {
-    elements.employeeAuthPanel.hidden = !isEmployee;
-  }
-
-  if (elements.employerAuthPanel) {
-    elements.employerAuthPanel.hidden = isEmployee;
-  }
-
-  if (elements.employeeAuthTab) {
-    elements.employeeAuthTab.classList.toggle("active", isEmployee);
-    elements.employeeAuthTab.setAttribute("aria-selected", String(isEmployee));
-  }
-
-  if (elements.employerAuthTab) {
-    elements.employerAuthTab.classList.toggle("active", !isEmployee);
-    elements.employerAuthTab.setAttribute("aria-selected", String(!isEmployee));
-  }
-}
-
-function openAuthModal(preferredRole = "") {
-  if (!elements.authModal) {
+function renderAdminDashboard() {
+  if (state.currentRole !== "ADMIN") {
     return;
   }
 
-  const roleFromSession = hasEmployerSession()
-    ? "employer"
-    : (hasEmployeeSession() ? "employee" : "");
+  const stats = state.adminStats || {};
+  const statusCounts = stats.applicationStatusCounts || {};
 
-  const targetRole = preferredRole || roleFromSession || state.authModalRole || "employee";
-  setAuthModalRole(targetRole);
+  if (elements.adminStatsGrid) {
+    elements.adminStatsGrid.innerHTML = [
+      createStatCard("Users", stats.totalUsers || 0, "fa-users"),
+      createStatCard("Job seekers", stats.totalJobSeekers || 0, "fa-user-graduate"),
+      createStatCard("Employers", stats.totalEmployers || 0, "fa-building"),
+      createStatCard("Companies", `${stats.verifiedCompanies || 0}/${stats.totalCompanies || 0} verified`, "fa-circle-check", "success"),
+      createStatCard("Jobs", `${stats.openJobs || 0}/${stats.totalJobs || 0} open`, "fa-briefcase"),
+      createStatCard("Applications", stats.totalApplications || 0, "fa-paper-plane"),
+      createStatCard("Shortlisted", statusCounts.SHORTLISTED || 0, "fa-star"),
+      createStatCard("Hired", statusCounts.HIRED || 0, "fa-handshake", "success")
+    ].join("");
+  }
 
-  elements.authModal.hidden = false;
-  syncModalOpenState();
+  if (elements.adminUsersTable) {
+    const rows = state.adminUsers.map((user) => `
+      <tr>
+        <td>${escapeHtml(user.name)}</td>
+        <td>${escapeHtml(user.email)}</td>
+        <td>${statusBadge(user.role)}</td>
+        <td>${user.isActive ? statusBadge("ACTIVE") : statusBadge("INACTIVE")}</td>
+        <td>
+          <button class="btn-action" type="button" data-action="toggle-user" data-id="${user.id}" data-active="${user.isActive ? "false" : "true"}">
+            ${user.isActive ? "Deactivate" : "Activate"}
+          </button>
+        </td>
+      </tr>
+    `);
+    elements.adminUsersTable.innerHTML = createTable(["Name", "Email", "Role", "Status", "Action"], rows);
+  }
 
-  requestAnimationFrame(() => {
-    const focusTarget = targetRole === "employer"
-      ? elements.employerEmail
-      : elements.employeeEmail;
+  if (elements.adminCompaniesTable) {
+    const rows = state.adminCompanies.map((company) => `
+      <tr>
+        <td>${escapeHtml(company.name)}</td>
+        <td>${escapeHtml(company.owner?.email || "Owner")}</td>
+        <td>${escapeHtml(company.location || "Not set")}</td>
+        <td>${company.verified ? statusBadge("VERIFIED") : statusBadge("UNVERIFIED")}</td>
+        <td>
+          <button class="btn-action" type="button" data-action="verify-company" data-id="${company.id}" data-verified="${company.verified ? "false" : "true"}">
+            ${company.verified ? "Unverify" : "Verify"}
+          </button>
+        </td>
+      </tr>
+    `);
+    elements.adminCompaniesTable.innerHTML = createTable(["Company", "Owner", "Location", "Verified", "Action"], rows);
+  }
 
-    if (focusTarget) {
-      focusTarget.focus();
+  if (elements.adminJobsTable) {
+    const rows = state.adminJobs.map((job) => {
+      const options = jobStatuses
+        .map((status) => `<option value="${status}" ${job.status === status ? "selected" : ""}>${status}</option>`)
+        .join("");
+      return `
+        <tr>
+          <td>${escapeHtml(job.title)}</td>
+          <td>${escapeHtml(job.company || job.companyProfile?.name || "Company")}</td>
+          <td>${escapeHtml(job.location || "")}</td>
+          <td>${statusBadge(job.status)}</td>
+          <td>
+            <select data-action="admin-job-status" data-id="${job.id}">${options}</select>
+          </td>
+        </tr>
+      `;
+    });
+    elements.adminJobsTable.innerHTML = createTable(["Title", "Company", "Location", "Status", "Moderate"], rows);
+  }
+
+  if (elements.adminApplicationsTable) {
+    const filteredApplications = getFilteredAdminApplications();
+    const rows = filteredApplications.map((application) => `
+      <tr>
+        <td>${escapeHtml(application.applicantName || "Applicant")}</td>
+        <td>${escapeHtml(application.applicantEmail || "")}</td>
+        <td>${escapeHtml(application.jobTitle || application.job?.title || "Job")}</td>
+        <td>${escapeHtml(application.company || application.job?.company || application.job?.companyProfile?.name || "Company")}</td>
+        <td>${statusBadge(application.status)}</td>
+        <td>${escapeHtml(formatDate(application.createdAt))}</td>
+        <td>
+          <div class="table-actions">
+            ${createApplicationActionButtons(application)}
+            <button class="btn-action" type="button" data-action="admin-download-cv" data-id="${application.id}">
+              <i class="fa-solid fa-download" aria-hidden="true"></i>CV
+            </button>
+          </div>
+        </td>
+      </tr>
+    `);
+    elements.adminApplicationsTable.innerHTML = createTable(["Applicant", "Email", "Job", "Company", "Status", "Submitted", "Actions"], rows);
+  }
+
+  if (elements.adminApplicationStatusSummary) {
+    elements.adminApplicationStatusSummary.innerHTML = applicationStatuses.map((status) => {
+      const count = state.adminApplications.filter((application) => application.status === status).length;
+      return createStatCard(status.replaceAll("_", " "), count, status === "SHORTLISTED" ? "fa-star" : "fa-list-check", status === "HIRED" ? "success" : "");
+    }).join("");
+  }
+
+  if (elements.adminShortlistQueue) {
+    const shortlisted = state.adminApplications.filter((application) => application.status === "SHORTLISTED");
+    elements.adminShortlistQueue.innerHTML = shortlisted.length
+      ? shortlisted.map(createAdminApplicationCard).join("")
+      : createEmptyState("Shortlist queue is empty", "Applications marked Shortlisted will be highlighted here for quick review.", "fa-star");
+  }
+
+  if (elements.adminReportsList) {
+    elements.adminReportsList.innerHTML = state.adminReports.length
+      ? state.adminReports.map((report) => {
+        const options = reportStatuses
+          .map((status) => `<option value="${status}" ${report.status === status ? "selected" : ""}>${status}</option>`)
+          .join("");
+
+        return `
+          <article class="compact-list-item">
+            <div>
+              <strong>${escapeHtml(report.targetType)} #${escapeHtml(report.targetId)}</strong>
+              <p>${escapeHtml(report.reason)}</p>
+              <p class="helper-note">Reported by ${escapeHtml(report.reporter?.email || "User")}</p>
+            </div>
+            <label class="compact-select-label">
+              Status
+              <select data-action="report-status" data-id="${report.id}">${options}</select>
+            </label>
+          </article>
+        `;
+      }).join("")
+      : createEmptyState("No reports", "Moderation reports will appear here.", "fa-shield-halved");
+  }
+
+  if (elements.adminSalaryInsights) {
+    elements.adminSalaryInsights.innerHTML = state.salaries.length
+      ? state.salaries.map((item) => `
+        <article class="compact-list-item">
+          <div>
+            <strong>${escapeHtml(item.role || item.roleTitle)}</strong>
+            <p>${escapeHtml(item.salaryRange || `${item.salaryMin} - ${item.salaryMax}`)} ${item.location ? `- ${escapeHtml(item.location)}` : ""}</p>
+          </div>
+          <button class="btn-action danger" type="button" data-action="delete-salary" data-id="${item.id}">
+            Delete
+          </button>
+        </article>
+      `).join("")
+      : createEmptyState("No salary insights", "Add the first benchmark using the form above.", "fa-chart-line");
+  }
+}
+
+function renderAuthModal() {
+  const isRecovery = state.authMode === "recovery";
+
+  if (state.authRole === "ADMIN" && state.authMode === "register") {
+    state.authMode = "login";
+  }
+
+  const isRegister = state.authMode === "register";
+  const isEmployerRegister = isRegister && state.authRole === "EMPLOYER";
+
+  if (elements.authModalTitle) {
+    elements.authModalTitle.textContent = isRecovery ? "Recover your account" : "Welcome to Career Bridge";
+  }
+
+  if (elements.authModalHelper) {
+    elements.authModalHelper.textContent = isRecovery
+      ? "Enter your account email and follow the reset instructions."
+      : "Choose your role and continue securely.";
+  }
+
+  if (elements.authModeSwitch) {
+    elements.authModeSwitch.hidden = isRecovery;
+  }
+
+  if (elements.authRoleSwitch) {
+    elements.authRoleSwitch.hidden = isRecovery;
+  }
+
+  if (elements.authForm) {
+    elements.authForm.hidden = isRecovery;
+  }
+
+  if (elements.passwordRecoveryPanel) {
+    elements.passwordRecoveryPanel.hidden = !isRecovery;
+  }
+
+  if (elements.authLoginMode) {
+    elements.authLoginMode.classList.toggle("active", !isRegister);
+  }
+
+  if (elements.authRegisterMode) {
+    elements.authRegisterMode.classList.toggle("active", isRegister);
+    elements.authRegisterMode.disabled = state.authRole === "ADMIN";
+  }
+
+  document.querySelectorAll("[data-auth-role]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.authRole === state.authRole);
+  });
+
+  document.querySelectorAll(".auth-register-only").forEach((element) => {
+    element.hidden = !isRegister;
+  });
+
+  document.querySelectorAll(".auth-employer-register-only").forEach((element) => {
+    element.hidden = !isEmployerRegister;
+  });
+
+  if (elements.authSubmitButton) {
+    elements.authSubmitButton.textContent = isRegister ? `Register as ${roleLabel(state.authRole)}` : `Login as ${roleLabel(state.authRole)}`;
+  }
+
+  if (elements.authPassword) {
+    elements.authPassword.setAttribute("autocomplete", isRegister ? "new-password" : "current-password");
+  }
+
+  if (elements.passwordHelper) {
+    elements.passwordHelper.textContent = isRegister
+      ? "Use at least 8 characters. A mix of letters and numbers is recommended."
+      : "Use demo1234 for seeded demo accounts.";
+  }
+
+  if (elements.forgotPasswordPanel) {
+    elements.forgotPasswordPanel.hidden = isRegister || isRecovery;
+  }
+
+  if (elements.resetPasswordForm && (isRegister || !isRecovery)) {
+    elements.resetPasswordForm.hidden = true;
+  }
+
+  if (elements.authDemoHint) {
+    const hints = {
+      JOB_SEEKER: "Demo Job Seeker: employee@careerbridge.com / demo1234",
+      EMPLOYER: "Demo Employer: employer@careerbridge.com / demo1234",
+      ADMIN: "Demo Admin: admin@careerbridge.com / demo1234"
+    };
+    elements.authDemoHint.textContent = isRecovery ? "" : hints[state.authRole] || "";
+  }
+}
+
+function openPasswordRecovery() {
+  state.authMode = "recovery";
+  renderAuthModal();
+  setFormStatus(elements.authStatus, "");
+  setFormStatus(elements.resetStatus, "");
+
+  const email = String(elements.authEmail?.value || "").trim();
+  if (elements.recoveryEmailInput && email) {
+    elements.recoveryEmailInput.value = email;
+  }
+
+  if (elements.resetPasswordForm) {
+    elements.resetPasswordForm.hidden = true;
+  }
+
+  window.requestAnimationFrame(() => elements.recoveryEmailInput?.focus());
+}
+
+function returnToLoginFromRecovery(message = "") {
+  state.authMode = "login";
+  renderAuthModal();
+
+  if (elements.resetPasswordForm) {
+    elements.resetPasswordForm.hidden = true;
+  }
+
+  if (message) {
+    setFormStatus(elements.authStatus, message, "success");
+  }
+}
+
+function openAuthModal(mode = "login", role = "JOB_SEEKER") {
+  state.authMode = mode === "recovery" ? "recovery" : mode === "register" ? "register" : "login";
+  state.authRole = normalizeRole(role);
+  renderAuthModal();
+  setFormStatus(elements.authStatus, "");
+  setFormStatus(elements.resetStatus, "");
+
+  if (elements.resetPasswordForm) {
+    elements.resetPasswordForm.hidden = true;
+  }
+
+  if (elements.authModal) {
+    elements.authModal.hidden = false;
+    syncModalOpenState();
+    window.requestAnimationFrame(() => {
+      const focusTarget = state.authMode === "register" ? elements.authName : elements.authEmail;
+      focusTarget?.focus();
+    });
+  }
+}
+
+function closeAuthModal() {
+  if (elements.authModal) {
+    elements.authModal.hidden = true;
+    syncModalOpenState();
+  }
+}
+
+const cvBuilderListConfig = {
+  education: {
+    container: () => elements.cvBuilderEducationList,
+    fields: [
+      ["degree", "What did you study?", "Bachelor of Business Administration"],
+      ["years", "When?", "2020 - 2024 or Present"],
+      ["institution", "Where?", "University, training center, or certification body"],
+      ["location", "Location", "Dhaka, Bangladesh"],
+      ["resultType", "Result type", "CGPA", "select", ["CGPA", "GPA", "Grade", "Percentage", "Division", "Result"]],
+      ["resultValue", "Result value", "3.80"],
+      ["resultScale", "Out of", "4.00"],
+      ["group", "Main subject/focus", "Marketing, Finance, HR, Design, Software, etc."],
+      ["awards", "Honors or notes", "Dean's List, scholarship, distinction, relevant coursework", "textarea"]
+    ]
+  },
+  skills: {
+    container: () => elements.cvBuilderSkillsList,
+    fields: [
+      ["category", "Skill group", "Core Skills"],
+      ["values", "Skills", "Customer service, reporting, negotiation, stakeholder communication"]
+    ]
+  },
+  projects: {
+    container: () => elements.cvBuilderProjectsList,
+    fields: [
+      ["title", "Work sample title", "Customer Retention Campaign"],
+      ["source", "Link title", "Portfolio"],
+      ["link", "Source URL", "https://your-portfolio.example.com/project"],
+      ["technologies", "Tools, methods, or keywords", "Excel, CRM, market research, reporting"],
+      ["bullets", "What did you do?", "Analyzed customer feedback to identify churn patterns.\nPrepared weekly reports that helped improve follow-up speed.", "textarea"]
+    ]
+  },
+  achievements: {
+    container: () => elements.cvBuilderAchievementsList,
+    fields: [
+      ["title", "Title", "Employee of the Month"],
+      ["organization", "Given by", "Company, platform, or awarding body"],
+      ["dates", "When?", "2024"],
+      ["link", "Link", "https://example.com"],
+      ["bullets", "Details", "Recognized for consistently exceeding service quality targets.\nMentored two new team members during onboarding.", "textarea"]
+    ]
+  },
+  activities: {
+    container: () => elements.cvBuilderActivitiesList,
+    fields: [
+      ["role", "Your role", "Volunteer Coordinator"],
+      ["organization", "Organization", "Community organization, club, association, or event"],
+      ["dates", "When?", "2022 - Present"]
+    ]
+  },
+  references: {
+    container: () => elements.cvBuilderReferencesList,
+    fields: [
+      ["name", "Name", "Reference Name"],
+      ["position", "Position", "Manager, supervisor, faculty member, or client"],
+      ["department", "Department/team", "Operations, HR, Sales, Academic Department"],
+      ["institution", "Organization", "Company, university, or organization"],
+      ["email", "Email", "reference@example.com"]
+    ]
+  }
+};
+
+function getCvBuilderScalarFields() {
+  return Array.from(elements.cvBuilderPanel?.querySelectorAll("[data-cv-scalar]") || []);
+}
+
+function normalizeCvBuilderBullets(value) {
+  const source = Array.isArray(value) ? value.join("\n") : value;
+  return String(source || "")
+    .split(/\n+/)
+    .map((item) => item.replace(/^[•*-]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function hasCvBuilderItemValue(item) {
+  return Object.values(item || {}).some((value) => String(value || "").trim());
+}
+
+function createCvBuilderInput(field, value = "") {
+  const [name, label, placeholder, type, options = []] = field;
+  let inputMarkup = `<input data-cv-field="${name}" type="${name === "email" ? "email" : name === "link" ? "url" : "text"}" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(value)}" />`;
+
+  if (type === "textarea") {
+    inputMarkup = `<textarea data-cv-field="${name}" rows="3" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea>`;
+  }
+
+  if (type === "select") {
+    inputMarkup = `
+      <select data-cv-field="${name}">
+        ${options.map((option) => `<option value="${escapeHtml(option)}" ${String(value || placeholder) === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+
+  return `<label>${escapeHtml(label)}${inputMarkup}</label>`;
+}
+
+function addCvBuilderItem(type, values = {}) {
+  const config = cvBuilderListConfig[type];
+  const container = config?.container();
+
+  if (!config || !container) {
+    return null;
+  }
+
+  const item = document.createElement("div");
+  item.className = "cv-repeatable-item";
+  item.dataset.cvItem = type;
+  item.innerHTML = `
+    <div class="cv-repeatable-fields">
+      ${config.fields.map((field) => createCvBuilderInput(field, values[field[0]])).join("")}
+    </div>
+    <button class="btn btn-secondary cv-remove-item" type="button" data-cv-remove="${type}">Remove</button>
+  `;
+  container.append(item);
+  return item;
+}
+
+function clearCvBuilderList(type) {
+  const container = cvBuilderListConfig[type]?.container();
+  if (container) {
+    container.innerHTML = "";
+  }
+}
+
+function addDefaultCvBuilderRows() {
+  const defaults = {
+    education: [{}],
+    skills: [
+      { category: "Core Skills" },
+      { category: "Tools & Platforms" },
+      { category: "Industry Knowledge" },
+      { category: "Languages" }
+    ],
+    projects: [{}],
+    achievements: [{}],
+    activities: [{}],
+    references: [{}, {}]
+  };
+
+  Object.entries(defaults).forEach(([type, items]) => {
+    const container = cvBuilderListConfig[type]?.container();
+    if (container && !container.children.length) {
+      items.forEach((item) => addCvBuilderItem(type, item));
     }
   });
 }
 
-function closeAuthModal() {
-  if (!elements.authModal) {
+function getCvBuilderDraft() {
+  const scalars = Object.fromEntries(getCvBuilderScalarFields().map((element) => [
+    element.dataset.cvScalar,
+    String(element.value || "").trim()
+  ]));
+  const lists = {};
+
+  Object.keys(cvBuilderListConfig).forEach((type) => {
+    const container = cvBuilderListConfig[type].container();
+    lists[type] = Array.from(container?.querySelectorAll("[data-cv-item]") || [])
+      .map((item) => Object.fromEntries(Array.from(item.querySelectorAll("[data-cv-field]")).map((field) => [
+        field.dataset.cvField,
+        String(field.value || "").trim()
+      ])))
+      .filter(hasCvBuilderItemValue);
+  });
+
+  return { scalars, ...lists };
+}
+
+function saveCvBuilderDraft() {
+  window.localStorage.setItem(CV_BUILDER_STORAGE_KEY, JSON.stringify(getCvBuilderDraft()));
+}
+
+function migrateLegacyCvBuilderDraft(draft) {
+  if (draft.scalars) {
+    return draft;
+  }
+
+  return {
+    scalars: {
+      program: draft.program || "",
+      studentId: draft.studentId || "",
+      summary: draft.summary || "",
+      location: draft.location || "",
+      address: draft.address || "",
+      linkedin: draft.linkedin || "",
+      github: draft.github || ""
+    },
+    education: draft.education ? [{ degree: draft.education }] : [],
+    skills: [
+      draft.skillLanguages ? { category: "Languages", values: draft.skillLanguages } : null,
+      draft.skillFrameworks ? { category: "Frameworks", values: draft.skillFrameworks } : null,
+      draft.skillTools ? { category: "Tools & Platforms", values: draft.skillTools } : null
+    ].filter(Boolean),
+    projects: draft.projects ? [{ title: draft.projects }] : [],
+    achievements: draft.certifications ? [{ title: draft.certifications }] : [],
+    activities: draft.activities ? [{ role: draft.activities }] : [],
+    references: [draft.referenceOne ? { name: draft.referenceOne } : null, draft.referenceTwo ? { name: draft.referenceTwo } : null].filter(Boolean)
+  };
+}
+
+function loadCvBuilderDraft() {
+  let draft = {};
+
+  try {
+    draft = migrateLegacyCvBuilderDraft(JSON.parse(window.localStorage.getItem(CV_BUILDER_STORAGE_KEY) || "{}"));
+  } catch (_error) {
+    draft = {};
+  }
+
+  getCvBuilderScalarFields().forEach((element) => {
+    const value = draft.scalars?.[element.dataset.cvScalar];
+    if (value) {
+      element.value = value;
+    }
+  });
+
+  Object.keys(cvBuilderListConfig).forEach((type) => {
+    clearCvBuilderList(type);
+    (Array.isArray(draft[type]) ? draft[type] : []).forEach((item) => addCvBuilderItem(type, item));
+  });
+  addDefaultCvBuilderRows();
+}
+
+function resetCvBuilderForm() {
+  getCvBuilderScalarFields().forEach((element) => {
+    element.value = "";
+  });
+  Object.keys(cvBuilderListConfig).forEach(clearCvBuilderList);
+  addDefaultCvBuilderRows();
+  state.cvBuilderPhotoDataUrl = "";
+  state.cvBuilderPhotoPdfData = null;
+  state.generatedCvFile = null;
+  window.localStorage.removeItem(CV_BUILDER_STORAGE_KEY);
+  if (elements.cvBuilderPreview) {
+    elements.cvBuilderPreview.hidden = true;
+    elements.cvBuilderPreview.innerHTML = "";
+  }
+  if (elements.cvBuilderPhoto) {
+    elements.cvBuilderPhoto.value = "";
+  }
+  setFormStatus(elements.cvBuilderStatus, "CV Builder form cleared.", "success");
+}
+
+function getCvBuilderData() {
+  const draft = getCvBuilderDraft();
+  const scalars = draft.scalars || {};
+
+  return {
+    fullName: String(elements.applyName?.value || state.currentUser?.name || "").trim(),
+    email: String(elements.applyEmail?.value || state.currentUser?.email || "").trim(),
+    phone: String(elements.applyPhone?.value || state.profile?.phone || "").trim(),
+    program: scalars.program || "",
+    studentId: scalars.studentId || "",
+    summary: scalars.summary || state.profile?.bio || "",
+    location: scalars.location || state.profile?.location || "",
+    address: scalars.address || "",
+    linkedin: scalars.linkedin || state.profile?.linkedinUrl || "",
+    github: scalars.github || state.profile?.githubUrl || "",
+    education: draft.education || [],
+    skills: draft.skills || [],
+    projects: draft.projects || [],
+    achievements: draft.achievements || [],
+    activities: draft.activities || [],
+    references: draft.references || []
+  };
+}
+
+function validateCvBuilderData(data) {
+  if (!data.fullName || !data.email) {
+    return "Full name and email are required before generating a CV.";
+  }
+
+  return "";
+}
+
+function formatCvUrlLabel(url) {
+  return String(url || "").replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
+function renderCvLink(url, label = "") {
+  if (!url) {
+    return label ? escapeHtml(label) : "";
+  }
+
+  const safeUrl = escapeHtml(url);
+  return `<a href="${safeUrl}" target="_blank" rel="noopener">${escapeHtml(label || formatCvUrlLabel(url))}</a>`;
+}
+
+function renderCvBullets(items) {
+  const bullets = Array.isArray(items) ? items : normalizeCvBuilderBullets(items);
+  return bullets.length
+    ? `<ul>${bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "";
+}
+
+function renderCvSection(title, content) {
+  const trimmed = String(content || "").trim();
+  return trimmed ? `<section class="cv-doc-section"><h4>${escapeHtml(title)}</h4>${trimmed}</section>` : "";
+}
+
+function formatEducationResult(item) {
+  if (item.result) {
+    return item.result;
+  }
+
+  const value = String(item.resultValue || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  const type = String(item.resultType || "Result").trim();
+  const scale = String(item.resultScale || "").trim();
+  return scale ? `${type}: ${value} / ${scale}` : `${type}: ${value}`;
+}
+
+function buildCvPreviewMarkup(data) {
+  const photoMarkup = state.cvBuilderPhotoDataUrl
+    ? `<img class="cv-photo-preview" src="${state.cvBuilderPhotoDataUrl}" alt="Profile preview" />`
+    : "";
+  const identity = [data.program, data.studentId].filter(Boolean).join(" • ");
+  const contact = [data.phone, data.email ? renderCvLink(`mailto:${data.email}`, data.email) : ""].filter(Boolean).join(" &nbsp; ");
+  const links = [renderCvLink(data.linkedin, "LinkedIn"), renderCvLink(data.github, "GitHub")].filter(Boolean).join(" &nbsp; ");
+  const education = data.education.filter(hasCvBuilderItemValue).map((item) => {
+    const meta = [formatEducationResult(item), item.group ? `Focus: ${item.group}` : "", item.awards].filter(Boolean);
+    return `
+      <div class="cv-doc-entry">
+        <div class="cv-doc-entry-head">
+          <strong>${escapeHtml(item.degree || "Education")}</strong>
+          ${item.years ? `<span>${escapeHtml(item.years)}</span>` : ""}
+        </div>
+        <div class="cv-doc-entry-sub">
+          <em>${escapeHtml(item.institution || "")}</em>
+          ${item.location ? `<span>${escapeHtml(item.location)}</span>` : ""}
+        </div>
+        ${renderCvBullets(meta)}
+      </div>
+    `;
+  }).join("");
+  const skills = data.skills.filter((item) => String(item.values || "").trim()).map((item) => `
+    <div class="cv-doc-skill-row">
+      <strong>${escapeHtml(item.category || "Skills")}</strong>
+      <span>${escapeHtml(item.values || "")}</span>
+    </div>
+  `).join("");
+  const projects = data.projects.filter(hasCvBuilderItemValue).map((item) => `
+    <div class="cv-doc-entry">
+      <div class="cv-doc-entry-head">
+        <strong>${escapeHtml(item.title || "Project")}${item.source || item.link ? ` | ${renderCvLink(item.link, item.source || "Source")}` : ""}</strong>
+        ${item.technologies ? `<span>${escapeHtml(item.technologies)}</span>` : ""}
+      </div>
+      ${renderCvBullets(item.bullets)}
+    </div>
+  `).join("");
+  const achievements = data.achievements.filter(hasCvBuilderItemValue).map((item) => `
+    <div class="cv-doc-entry">
+      <div class="cv-doc-entry-head">
+        <strong>${escapeHtml(item.title || "Achievement")}${item.link ? ` | ${renderCvLink(item.link, "Link")}` : ""}</strong>
+        ${item.dates ? `<span>${escapeHtml(item.dates)}</span>` : ""}
+      </div>
+      ${item.organization ? `<div class="cv-doc-entry-sub"><em>${escapeHtml(item.organization)}</em></div>` : ""}
+      ${renderCvBullets(item.bullets)}
+    </div>
+  `).join("");
+  const activities = data.activities.filter(hasCvBuilderItemValue).map((item) => `
+    <div class="cv-doc-entry cv-doc-activity">
+      <strong>${escapeHtml(item.role || "Activity")}</strong>
+      ${item.organization ? `<span>${escapeHtml(item.organization)}</span>` : ""}
+      ${item.dates ? `<span>${escapeHtml(item.dates)}</span>` : ""}
+    </div>
+  `).join("");
+  const references = data.references.filter(hasCvBuilderItemValue).map((item) => `
+    <div class="cv-doc-reference">
+      <strong>${escapeHtml(item.name || "Reference")}</strong>
+      ${[item.position, item.department, item.institution].filter(Boolean).map((line) => `<span>${escapeHtml(line)}</span>`).join("")}
+      ${item.email ? `<span>${renderCvLink(`mailto:${item.email}`, item.email)}</span>` : ""}
+    </div>
+  `).join("");
+
+  return `
+    <div class="cv-document">
+      <header class="cv-doc-header">
+        <div>
+          <h3>${escapeHtml(data.fullName)}</h3>
+      ${identity ? `<p>${escapeHtml(identity)}</p>` : ""}
+      ${contact ? `<p>${contact}</p>` : ""}
+      ${data.address || data.location ? `<p>${escapeHtml(data.address || data.location)}</p>` : ""}
+      ${links ? `<p>${links}</p>` : ""}
+        </div>
+        ${photoMarkup}
+      </header>
+      ${renderCvSection("Professional Summary", data.summary ? `<p>${escapeHtml(data.summary)}</p>` : "")}
+      ${renderCvSection("Education", education)}
+      ${renderCvSection("Skills", skills)}
+      ${renderCvSection("Projects / Work Samples", projects)}
+      ${renderCvSection("Achievements", achievements)}
+      ${renderCvSection("Leadership & Activities", activities)}
+      ${renderCvSection("References", references ? `<div class="cv-doc-reference-grid">${references}</div>` : "")}
+      <footer class="cv-doc-footer">${escapeHtml(data.fullName)} — Page 1 of 2</footer>
+    </div>
+  `;
+}
+
+function renderCvBuilderPreview() {
+  const data = getCvBuilderData();
+  const validationMessage = validateCvBuilderData(data);
+
+  if (validationMessage) {
+    setFormStatus(elements.cvBuilderStatus, validationMessage, "error");
+    return false;
+  }
+
+  if (elements.cvBuilderPreview) {
+    elements.cvBuilderPreview.hidden = false;
+    elements.cvBuilderPreview.innerHTML = buildCvPreviewMarkup(data);
+  }
+
+  saveCvBuilderDraft();
+  setFormStatus(elements.cvBuilderStatus, "CV preview is ready. Download it or attach the generated CV to your application.", "success");
+  return true;
+}
+
+function dataUrlToBytes(dataUrl) {
+  const base64 = String(dataUrl || "").split(",")[1] || "";
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function prepareCvBuilderPhotoForPdf(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => {
+      const targetWidth = 280;
+      const targetHeight = 352;
+      const portraitFocalY = 0.42;
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      const sourceRatio = image.naturalWidth / image.naturalHeight;
+      const targetRatio = targetWidth / targetHeight;
+      let sourceWidth = image.naturalWidth;
+      let sourceHeight = image.naturalHeight;
+      let sourceX = 0;
+      let sourceY = 0;
+
+      if (sourceRatio > targetRatio) {
+        sourceWidth = image.naturalHeight * targetRatio;
+        sourceX = (image.naturalWidth - sourceWidth) / 2;
+      } else {
+        sourceHeight = image.naturalWidth / targetRatio;
+        sourceY = (image.naturalHeight * portraitFocalY) - (sourceHeight * portraitFocalY);
+      }
+
+      sourceX = Math.max(0, Math.min(sourceX, image.naturalWidth - sourceWidth));
+      sourceY = Math.max(0, Math.min(sourceY, image.naturalHeight - sourceHeight));
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, targetWidth, targetHeight);
+      context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+
+      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.88);
+      resolve({
+        width: targetWidth,
+        height: targetHeight,
+        bytes: dataUrlToBytes(jpegDataUrl)
+      });
+    });
+    image.addEventListener("error", () => reject(new Error("Could not read profile picture.")));
+    image.src = dataUrl;
+  });
+}
+
+function escapePdfText(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("(", "\\(")
+    .replaceAll(")", "\\)")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+}
+
+function wrapPdfLines(text, maxLength = 82) {
+  const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines = [];
+  let current = "";
+
+  words.forEach((word) => {
+    if (`${current} ${word}`.trim().length > maxLength) {
+      if (current) {
+        lines.push(current);
+      }
+      current = word;
+      return;
+    }
+
+    current = `${current} ${word}`.trim();
+  });
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines;
+}
+
+function createStructuredCvPdfFile(data) {
+  const pageWidth = 595.276;
+  const pageHeight = 841.89;
+  const marginX = 48;
+  const rightX = pageWidth - marginX;
+  const bottomY = 58;
+  const pages = [];
+  let content = [];
+  let y = 786;
+
+  const add = (command) => {
+    content.push(command);
+  };
+  const newPage = () => {
+    pages.push(content.join("\n"));
+    content = [];
+    y = 786;
+  };
+  const ensureSpace = (height) => {
+    if (y - height < bottomY) {
+      newPage();
+    }
+  };
+  const text = (value, x, currentY, options = {}) => {
+    const font = options.font || "F1";
+    const size = options.size || 9.2;
+    const color = options.color || "0 0 0";
+    add("BT");
+    add(`${color} rg`);
+    add(`/${font} ${size} Tf`);
+    add(`1 0 0 1 ${x} ${currentY} Tm`);
+    add(`(${escapePdfText(value)}) Tj`);
+    add("ET");
+  };
+  const rightText = (value, currentY, options = {}) => {
+    const size = options.size || 9;
+    const approximateWidth = escapePdfText(value).length * size * 0.45;
+    text(value, Math.max(marginX, rightX - approximateWidth), currentY, options);
+  };
+  const line = (x1, y1, x2, y2, width = 0.45, color = "0.35 0.35 0.35") => {
+    add(`${color} RG`);
+    add(`${width} w`);
+    add(`${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+  const wrappedText = (value, x = marginX, options = {}) => {
+    const size = options.size || 9.2;
+    const maxLength = options.maxLength || 98;
+    const leading = options.leading || size + 3;
+    const firstPrefix = options.prefix || "";
+    wrapPdfLines(value, maxLength).forEach((item, index) => {
+      ensureSpace(leading + 2);
+      text(`${index === 0 ? firstPrefix : "  "}${item}`, x, y, {
+        font: options.font || "F1",
+        size,
+        color: options.color
+      });
+      y -= leading;
+    });
+  };
+  const section = (title) => {
+    ensureSpace(34);
+    y -= 8;
+    text(title, marginX, y, { font: "F2", size: 12 });
+    line(marginX, y - 6, rightX, y - 6);
+    y -= 20;
+  };
+  const bulletLines = (value, x = marginX + 8) => {
+    normalizeCvBuilderBullets(value).forEach((item) => {
+      wrappedText(item, x, { size: 9, maxLength: 106, leading: 12, prefix: "- " });
+    });
+  };
+  const addSectionIf = (title, values, renderer) => {
+    const items = (values || []).filter(hasCvBuilderItemValue);
+    if (!items.length) {
+      return;
+    }
+    section(title);
+    items.forEach(renderer);
+    y -= 4;
+  };
+
+  text(data.fullName || "Your Full Name", marginX, y, { font: "F2", size: 18 });
+  y -= 18;
+  const identity = [data.program, data.studentId].filter(Boolean).join(" - ");
+  if (identity) {
+    text(identity, marginX, y, { size: 9 });
+    y -= 13;
+  }
+  text([data.phone, data.email].filter(Boolean).join("   "), marginX, y, { size: 8.8, color: "0 0.18 0.45" });
+  y -= 12;
+  if (data.address || data.location) {
+    wrappedText(data.address || data.location, marginX, { size: 8.8, maxLength: 90, leading: 11 });
+  }
+  const links = [data.linkedin, data.github].filter(Boolean).join("   ");
+  if (links) {
+    wrappedText(links, marginX, { size: 8.8, maxLength: 90, leading: 11, color: "0 0.18 0.45" });
+  }
+  if (state.cvBuilderPhotoPdfData) {
+    add("q");
+    add("70 0 0 88 466 696 cm");
+    add("/Im1 Do");
+    add("Q");
+    add("0.72 0.72 0.72 RG");
+    add("0.6 w");
+    add("466 696 70 88 re S");
+  } else if (state.cvBuilderPhotoDataUrl) {
+    add("0.86 0.86 0.86 rg");
+    add("466 696 70 88 re f");
+    add("0.72 0.72 0.72 RG");
+    add("0.6 w");
+    add("466 696 70 88 re S");
+    add("0 0 0 rg");
+  }
+  y -= 10;
+
+  if (String(data.summary || "").trim()) {
+    section("Professional Summary");
+    wrappedText(data.summary, marginX, { size: 9.2, maxLength: 104, leading: 12 });
+    y -= 4;
+  }
+
+  addSectionIf("Education", data.education, (item) => {
+    ensureSpace(44);
+    text(item.degree || "Education", marginX, y, { font: "F2", size: 9.8 });
+    if (item.years) {
+      rightText(item.years, y, { font: "F2", size: 9 });
+    }
+    y -= 12;
+    text(item.institution || "", marginX, y, { font: "F3", size: 9, color: "0 0.18 0.45" });
+    if (item.location) {
+      rightText(item.location, y, { font: "F3", size: 8.6 });
+    }
+    y -= 12;
+    bulletLines([formatEducationResult(item), item.group ? `Focus: ${item.group}` : "", item.awards].filter(Boolean));
+    y -= 3;
+  });
+
+  addSectionIf("Skills", data.skills.filter((item) => String(item.values || "").trim()), (item) => {
+    ensureSpace(16);
+    text(item.category || "Skills", marginX, y, { font: "F2", size: 9 });
+    wrappedText(item.values || "", marginX + 105, { size: 9, maxLength: 72, leading: 11 });
+  });
+
+  addSectionIf("Projects / Work Samples", data.projects, (item) => {
+    ensureSpace(42);
+    text([item.title || "Project", item.source || "", item.technologies || ""].filter(Boolean).join(" | "), marginX, y, { font: "F2", size: 9.4 });
+    y -= 12;
+    bulletLines(item.bullets);
+    y -= 3;
+  });
+
+  addSectionIf("Achievements", data.achievements, (item) => {
+    ensureSpace(42);
+    text([item.title || "Achievement", item.organization || ""].filter(Boolean).join(" | "), marginX, y, { font: "F2", size: 9.4 });
+    if (item.dates) {
+      rightText(item.dates, y, { font: "F2", size: 8.8 });
+    }
+    y -= 12;
+    if (item.link) {
+      wrappedText(item.link, marginX, { size: 8.6, maxLength: 98, leading: 11, color: "0 0.18 0.45" });
+    }
+    bulletLines(item.bullets);
+    y -= 3;
+  });
+
+  addSectionIf("Leadership & Activities", data.activities, (item) => {
+    ensureSpace(16);
+    wrappedText([item.role || "Activity", item.organization || "", item.dates || ""].filter(Boolean).join(" | "), marginX, {
+      font: "F2",
+      size: 9.2,
+      maxLength: 102,
+      leading: 12
+    });
+  });
+
+  const references = (data.references || []).filter(hasCvBuilderItemValue);
+  if (references.length) {
+    section("References");
+    references.forEach((item, index) => {
+      const x = references.length > 1 && index % 2 === 1 ? 310 : marginX;
+      if (index % 2 === 0) {
+        ensureSpace(54);
+      }
+      const startY = y;
+      text(item.name || "Reference", x, startY, { font: "F2", size: 9.2 });
+      text(item.position || "", x, startY - 11, { size: 8.8 });
+      text(item.department || "", x, startY - 22, { size: 8.8 });
+      text(item.institution || "", x, startY - 33, { size: 8.8 });
+      text(item.email || "", x, startY - 44, { size: 8.8, color: "0 0.18 0.45" });
+      if (references.length === 1 || index % 2 === 1 || index === references.length - 1) {
+        y -= 58;
+      }
+    });
+  }
+
+  pages.push(content.join("\n"));
+
+  const imageData = state.cvBuilderPhotoPdfData;
+  const imageObjectId = imageData ? 6 : null;
+  const imageResource = imageData ? ` /XObject << /Im1 ${imageObjectId} 0 R >>` : "";
+  const pageAndContentObjects = [];
+  const pageKids = [];
+  let nextObjectId = imageData ? 7 : 6;
+
+  if (imageData) {
+    pageAndContentObjects.push([
+      `${imageObjectId} 0 obj << /Type /XObject /Subtype /Image /Width ${imageData.width} /Height ${imageData.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageData.bytes.length} >> stream\n`,
+      imageData.bytes,
+      "\nendstream endobj"
+    ]);
+  }
+
+  pages.forEach((stream, index) => {
+    const pageObjectId = nextObjectId++;
+    const contentObjectId = nextObjectId++;
+    pageKids.push(`${pageObjectId} 0 R`);
+    const footer = [
+      stream,
+      "BT",
+      "0.55 0.55 0.55 rg",
+      "/F3 8 Tf",
+      `1 0 0 1 222 24 Tm (${escapePdfText(`${data.fullName || "Career Bridge CV"} -- Page ${index + 1} of ${pages.length}`)}) Tj`,
+      "ET"
+    ].join("\n");
+    pageAndContentObjects.push(`${pageObjectId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >>${imageResource} >> /Contents ${contentObjectId} 0 R >> endobj`);
+    pageAndContentObjects.push(`${contentObjectId} 0 obj << /Length ${new TextEncoder().encode(footer).length} >> stream\n${footer}\nendstream endobj`);
+  });
+
+  const objects = [
+    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+    `2 0 obj << /Type /Pages /Kids [${pageKids.join(" ")}] /Count ${pages.length} >> endobj`,
+    "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> endobj",
+    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >> endobj",
+    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Italic >> endobj",
+    ...pageAndContentObjects
+  ];
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const offsets = [0];
+  let byteLength = 0;
+  const pushChunk = (chunk) => {
+    const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
+    chunks.push(bytes);
+    byteLength += bytes.length;
+  };
+
+  pushChunk("%PDF-1.4\n");
+  objects.forEach((object) => {
+    offsets.push(byteLength);
+    (Array.isArray(object) ? object : [object]).forEach(pushChunk);
+    pushChunk("\n");
+  });
+  const xrefOffset = byteLength;
+  pushChunk(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`);
+  offsets.slice(1).forEach((offset) => {
+    pushChunk(`${String(offset).padStart(10, "0")} 00000 n \n`);
+  });
+  pushChunk(`trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+
+  const blob = new Blob(chunks, { type: "application/pdf" });
+  return new File([blob], "career-bridge-cv.pdf", { type: "application/pdf" });
+}
+
+function downloadCvBuilderPdf() {
+  if (!renderCvBuilderPreview()) {
     return;
   }
 
-  elements.authModal.hidden = true;
+  const file = createStructuredCvPdfFile(getCvBuilderData());
+  const fileUrl = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = fileUrl;
+  link.download = file.name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(fileUrl), 1000);
+  setFormStatus(elements.cvBuilderStatus, "CV PDF downloaded.", "success");
+}
+
+function setCvMode(mode) {
+  state.cvMode = mode === "builder" ? "builder" : "upload";
+  state.generatedCvFile = state.cvMode === "upload" ? null : state.generatedCvFile;
+
+  elements.cvUploadModeButton?.classList.toggle("active", state.cvMode === "upload");
+  elements.cvBuilderModeButton?.classList.toggle("active", state.cvMode === "builder");
+
+  if (elements.cvUploadPanel) {
+    elements.cvUploadPanel.hidden = state.cvMode !== "upload";
+  }
+
+  if (elements.cvBuilderPanel) {
+    elements.cvBuilderPanel.hidden = state.cvMode !== "builder";
+  }
+
+  setFormStatus(elements.cvBuilderStatus, state.cvMode === "builder" ? "Fill the CV Builder fields, preview, then use the generated CV." : "");
+}
+
+function openJobModal(job, focusApply = false) {
+  if (!elements.jobModal || !elements.jobDetailPanel) {
+    return;
+  }
+
+  state.selectedJob = job;
+  const requirements = normalizeList(job.requirements);
+  const responsibilities = normalizeList(job.responsibilities);
+  const companyName = job.company || job.companyProfile?.name || "Company";
+  const requirementsMarkup = requirements.length
+    ? requirements.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : "<li>No specific requirements listed yet.</li>";
+  const responsibilityMarkup = responsibilities.length
+    ? `<h3>Responsibilities</h3><ul class="job-detail-list">${responsibilities.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "";
+
+  elements.jobDetailPanel.innerHTML = `
+    <h2 id="modalJobTitle">${escapeHtml(job.title)}</h2>
+    <div class="job-meta-list">
+      <span class="meta-pill"><i class="fa-solid fa-building" aria-hidden="true"></i>${escapeHtml(companyName)}</span>
+      <span class="meta-pill"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${escapeHtml(job.location || "Bangladesh")}</span>
+      <span class="meta-pill"><i class="fa-solid fa-briefcase" aria-hidden="true"></i>${escapeHtml(job.type || job.jobType || "Not specified")}</span>
+      ${job.status ? `<span class="meta-pill">${escapeHtml(job.status)}</span>` : ""}
+    </div>
+    <p class="job-salary">${escapeHtml(job.salary || "Salary negotiable")}</p>
+    <p id="modalJobDescription">${escapeHtml(job.description || "No description provided yet.")}</p>
+    <h3>Requirements</h3>
+    <ul class="job-detail-list">${requirementsMarkup}</ul>
+    ${responsibilityMarkup}
+  `;
+
+  if (elements.applyJobId) {
+    elements.applyJobId.value = String(job.id);
+  }
+
+  if (elements.applyName) {
+    elements.applyName.value = state.currentUser?.name || "";
+  }
+
+  if (elements.applyEmail) {
+    elements.applyEmail.value = state.currentUser?.email || "";
+  }
+
+  if (elements.applyPanel) {
+    elements.applyPanel.hidden = state.currentRole !== "JOB_SEEKER";
+  }
+
+  const alreadyApplied = isAlreadyApplied(job.id);
+
+  if (elements.alreadyAppliedNotice) {
+    elements.alreadyAppliedNotice.hidden = !alreadyApplied;
+  }
+
+  if (elements.applyForm) {
+    elements.applyForm.hidden = alreadyApplied || state.currentRole !== "JOB_SEEKER";
+  }
+
+  if (state.currentRole === "JOB_SEEKER" && !alreadyApplied) {
+    loadCvBuilderDraft();
+    setCvMode("upload");
+  }
+
+  if (state.currentRole === "PUBLIC") {
+    setFormStatus(elements.applyStatus, "Login or register as a Job Seeker to apply.", "");
+  } else if (state.currentRole !== "JOB_SEEKER") {
+    setFormStatus(elements.applyStatus, "Only Job Seekers can apply to jobs.", "");
+  } else if (alreadyApplied) {
+    setFormStatus(elements.applyStatus, "You have already applied for this job.", "success");
+  } else {
+    setFormStatus(elements.applyStatus, "");
+  }
+
+  elements.jobModal.hidden = false;
   syncModalOpenState();
+
+  if (focusApply && state.currentRole === "JOB_SEEKER" && !alreadyApplied) {
+    window.requestAnimationFrame(() => elements.applyName?.focus());
+  }
+}
+
+function closeJobModal() {
+  if (elements.jobModal) {
+    elements.jobModal.hidden = true;
+    state.selectedJob = null;
+    syncModalOpenState();
+  }
 }
 
 function clearCvPreviewState() {
@@ -940,66 +2455,30 @@ function clearCvPreviewState() {
   }
 }
 
-function showCvPreviewLoading(triggerElement) {
-  if (!elements.cvModal) {
-    return 0;
-  }
-
-  setCvReturnFocus(triggerElement);
-  clearCvPreviewState();
-  state.cvPreview.requestId += 1;
-  const requestId = state.cvPreview.requestId;
-
-  setFormStatus(elements.cvModalStatus, "Loading CV preview...", "");
-  elements.cvModal.hidden = false;
-  syncModalOpenState();
-  focusCvModalPrimaryAction();
-
-  return requestId;
-}
-
-function openCvModal(options) {
-  if (!elements.cvModal || !elements.cvPreviewFrame || !elements.downloadCvButton) {
+function openCvModal({ fileUrl, fileName, mimeType, revokeOnClose = true }) {
+  if (!elements.cvModal || !elements.downloadCvButton || !elements.cvPreviewFrame) {
     return;
   }
 
-  const {
-    fileUrl,
-    fileName,
-    mimeType,
-    revokeOnClose
-  } = options;
-
   clearCvPreviewState();
+  state.cvPreview.fileName = getSafeFileName(fileName || "cv-file");
 
   if (revokeOnClose) {
     state.cvPreview.objectUrl = fileUrl;
   }
 
-  state.cvPreview.fileName = getSafeFileName(fileName || "cv-file");
-  const canPreview = isPreviewableCvFile(mimeType, state.cvPreview.fileName);
-
-  if (canPreview) {
+  if (isPreviewableCvFile(mimeType, state.cvPreview.fileName)) {
     elements.cvPreviewFrame.src = fileUrl;
+    setFormStatus(elements.cvModalStatus, "CV preview ready.");
   } else {
-    elements.cvPreviewFrame.removeAttribute("src");
+    setFormStatus(elements.cvModalStatus, "This CV format is not previewable in-browser. Use Download CV.", "");
   }
 
   elements.downloadCvButton.dataset.fileUrl = fileUrl;
   elements.downloadCvButton.dataset.fileName = state.cvPreview.fileName;
   elements.downloadCvButton.disabled = false;
-
-  setFormStatus(
-    elements.cvModalStatus,
-    canPreview
-      ? "CV preview ready."
-      : "This CV format is not previewable in-browser. Use Download CV to open it locally.",
-    ""
-  );
-
   elements.cvModal.hidden = false;
   syncModalOpenState();
-  focusCvModalPrimaryAction();
 }
 
 function closeCvModal() {
@@ -1007,29 +2486,24 @@ function closeCvModal() {
     return;
   }
 
-  const returnFocusTarget = state.cvPreview.returnFocus;
   elements.cvModal.hidden = true;
-  state.cvPreview.requestId += 1;
   clearCvPreviewState();
-  setFormStatus(elements.cvModalStatus, "", "");
-  state.cvPreview.returnFocus = null;
+  setFormStatus(elements.cvModalStatus, "");
   syncModalOpenState();
-
-  if (returnFocusTarget instanceof HTMLElement && document.contains(returnFocusTarget)) {
-    returnFocusTarget.focus();
-  }
 }
 
 async function fetchProtectedCvBlob(applicationId) {
-  const response = await fetchWithTimeout(`${API_BASE}/api/applications/${applicationId}/cv`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/applications/${applicationId}/resume`, {
     headers: {
-      ...getEmployerAuthHeaders()
+      ...getAuthHeaders()
     }
   });
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}));
-    throw new Error(errorPayload.message || "Could not open CV file.");
+    const error = new Error(errorPayload.message || "Could not open CV file.");
+    error.status = response.status;
+    throw error;
   }
 
   const fileBlob = await response.blob();
@@ -1045,127 +2519,15 @@ async function fetchProtectedCvBlob(applicationId) {
   };
 }
 
-function openJobModal(job, focusForm = false) {
-  if (!elements.jobModal || !elements.jobDetailPanel || !elements.applyJobId) {
-    return;
-  }
-
-  const requirements = normalizeRequirements(job.requirements);
-  const requirementsMarkup = requirements.length
-    ? requirements.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
-    : "<li>No specific requirements listed yet.</li>";
-
-  elements.jobDetailPanel.innerHTML = `
-    <h2 id="modalJobTitle">${escapeHtml(job.title)}</h2>
-    <div class="job-meta-list">
-      <span class="meta-pill"><i class="fa-solid fa-building" aria-hidden="true"></i>${escapeHtml(job.company)}</span>
-      <span class="meta-pill"><i class="fa-solid fa-location-dot" aria-hidden="true"></i>${escapeHtml(job.location)}</span>
-      <span class="meta-pill"><i class="fa-solid fa-briefcase" aria-hidden="true"></i>${escapeHtml(job.type)}</span>
-    </div>
-    <p class="job-salary">${escapeHtml(job.salary)}</p>
-    <p id="modalJobDescription">${escapeHtml(job.description || "No description provided yet.")}</p>
-    <ul class="job-detail-list">${requirementsMarkup}</ul>
-  `;
-
-  elements.applyJobId.value = String(job.id);
-
-  if (elements.applyEmail && hasEmployeeSession()) {
-    elements.applyEmail.value = state.employeeSession.employeeEmail;
-  }
-
-  if (elements.applyName && !elements.applyName.value && state.employeeSession.displayName) {
-    elements.applyName.value = state.employeeSession.displayName;
-  }
-
-  setFormStatus(elements.applyStatus, "");
-  elements.jobModal.hidden = false;
-  syncModalOpenState();
-
-  if (focusForm) {
-    requestAnimationFrame(() => {
-      const nameInput = document.querySelector("#applyName");
-      if (nameInput) {
-        nameInput.focus();
-      }
-    });
-  }
+function syncModalOpenState() {
+  const isOpen = [elements.authModal, elements.jobModal, elements.cvModal].some((modal) => modal && !modal.hidden);
+  document.body.classList.toggle("modal-open", isOpen);
 }
 
-function closeJobModal() {
-  if (!elements.jobModal) {
-    return;
-  }
-
-  elements.jobModal.hidden = true;
-  syncModalOpenState();
-}
-
-async function loadFromApi() {
-  const [salaryResponse, jobResponse] = await Promise.all([
-    requestJson("/api/salaries"),
-    requestJson("/api/jobs")
-  ]);
-
-  state.salaries = Array.isArray(salaryResponse.data) ? salaryResponse.data : [...fallbackSalaries];
-  state.jobs = Array.isArray(jobResponse.data) ? jobResponse.data : [...fallbackJobs];
-  state.managedJobIds = new Set();
-  state.applications = [];
-
-  if (!hasEmployerSession()) {
-    return;
-  }
-
-  const authHeaders = getEmployerAuthHeaders();
-  const [managedJobResponse, applicationResponse] = await Promise.all([
-    requestJson("/api/jobs", { headers: authHeaders }),
-    requestJson("/api/applications", { headers: authHeaders })
-  ]);
-
-  const managedJobs = Array.isArray(managedJobResponse.data) ? managedJobResponse.data : [];
-  state.managedJobIds = new Set(managedJobs.map((job) => job.id));
-  state.applications = Array.isArray(applicationResponse.data) ? applicationResponse.data : [];
-}
-
-async function hydrateData() {
-  try {
-    await loadFromApi();
-    state.apiOnline = true;
-    setApiStatus(true);
-  } catch (error) {
-    if ((error.status === 401 || error.status === 403) && hasEmployerToken()) {
-      clearEmployerSession();
-
-      try {
-        await loadFromApi();
-        state.apiOnline = true;
-        setApiStatus(true);
-        setFormStatus(elements.employerAuthStatus, "Session expired. Please sign in again.", "error");
-      } catch (_retryError) {
-        state.apiOnline = false;
-        state.salaries = [...fallbackSalaries];
-        state.jobs = [...fallbackJobs];
-        state.applications = [];
-        state.managedJobIds = new Set();
-        setApiStatus(false);
-      }
-    } else {
-      state.apiOnline = false;
-      state.salaries = [...fallbackSalaries];
-      state.jobs = [...fallbackJobs];
-      state.applications = [];
-      state.managedJobIds = new Set();
-      setApiStatus(false);
-    }
-  }
-
-  renderSalaryCards();
-  renderJobCards();
-  renderListings();
-  renderApplications();
-}
-
-function getJobById(jobId) {
-  return state.jobs.find((job) => job.id === jobId) || null;
+async function refreshAfterMutation() {
+  await loadPublicData();
+  await loadRoleData();
+  renderAll();
 }
 
 function setupMenu() {
@@ -1179,864 +2541,980 @@ function setupMenu() {
     elements.siteNav.classList.toggle("open", !expanded);
   });
 
-  elements.siteNav.querySelectorAll("a").forEach((link) => {
-    link.addEventListener("click", () => {
+  elements.siteNav.addEventListener("click", (event) => {
+    if (event.target.closest("a")) {
       elements.menuButton.setAttribute("aria-expanded", "false");
       elements.siteNav.classList.remove("open");
-    });
+    }
   });
 }
 
-function setupActiveNavigation() {
-  const links = Array.from(document.querySelectorAll(".site-nav a[href^='#']"));
-  const sections = links
-    .map((link) => document.querySelector(link.getAttribute("href")))
-    .filter(Boolean);
+function setupAuthEvents() {
+  elements.loginButton?.addEventListener("click", () => openAuthModal("login", "JOB_SEEKER"));
+  elements.registerButton?.addEventListener("click", () => openAuthModal("register", "JOB_SEEKER"));
+  elements.closeAuthModalButton?.addEventListener("click", closeAuthModal);
+  elements.authModalBackdrop?.addEventListener("click", closeAuthModal);
+  elements.authLoginMode?.addEventListener("click", () => {
+    state.authMode = "login";
+    renderAuthModal();
+    setFormStatus(elements.authStatus, "");
+    setFormStatus(elements.resetStatus, "");
+  });
+  elements.authRegisterMode?.addEventListener("click", () => {
+    if (state.authRole === "ADMIN") {
+      setFormStatus(elements.authStatus, "Admin accounts are created by seed/admin tooling. Use Login.", "error");
+      return;
+    }
 
-  if (links.length === 0 || sections.length === 0 || !("IntersectionObserver" in window)) {
-    return;
-  }
+    state.authMode = "register";
+    renderAuthModal();
+    setFormStatus(elements.authStatus, "");
+    setFormStatus(elements.resetStatus, "");
+  });
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visibleEntry = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+  document.querySelectorAll("[data-auth-role]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.authRole = normalizeRole(button.dataset.authRole);
+      if (state.authRole === "ADMIN") {
+        state.authMode = "login";
+      }
+      renderAuthModal();
+      setFormStatus(elements.authStatus, "");
+    });
+  });
 
-      if (!visibleEntry) {
+  elements.togglePasswordButton?.addEventListener("click", () => {
+    if (!elements.authPassword) {
+      return;
+    }
+
+    const shouldShow = elements.authPassword.type === "password";
+    elements.authPassword.type = shouldShow ? "text" : "password";
+    elements.togglePasswordButton.textContent = shouldShow ? "Hide" : "Show";
+    elements.togglePasswordButton.setAttribute("aria-label", shouldShow ? "Hide password" : "Show password");
+  });
+
+  elements.forgotPasswordButton?.addEventListener("click", openPasswordRecovery);
+  elements.backToLoginButton?.addEventListener("click", () => returnToLoginFromRecovery());
+
+  elements.forgotPasswordForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const email = String(elements.recoveryEmailInput?.value || "").trim().toLowerCase();
+
+    if (!email) {
+      setFormStatus(elements.resetStatus, "Enter the email address connected to your Career Bridge account.", "error");
+      elements.recoveryEmailInput?.focus();
+      return;
+    }
+
+    try {
+      setFormStatus(elements.resetStatus, "Sending verification code...");
+      const response = await requestJson("/api/auth/forgot-password", {
+        method: "POST",
+        auth: false,
+        body: { email }
+      });
+
+      if (elements.resetPasswordForm) {
+        elements.resetPasswordForm.hidden = false;
+      }
+
+      if (response.delivery === "email") {
+        setFormStatus(elements.resetStatus, "Verification code sent. Check your email, then enter the code below.", "success");
+      } else if (response.delivery === "not_configured") {
+        setFormStatus(elements.resetStatus, "Email delivery is not configured yet. Add SMTP settings in backend/.env, restart the backend, then request a new code.", "error");
+      } else if (response.delivery === "failed") {
+        setFormStatus(elements.resetStatus, "The reset email could not be sent. Check the backend SMTP settings and server log, then try again.", "error");
+      } else {
+        setFormStatus(elements.resetStatus, response.message || "If the account exists and email is configured, a verification code will be sent.", "success");
+      }
+    } catch (error) {
+      setFormStatus(elements.resetStatus, getFriendlyErrorMessage(error, "Could not request password reset."), "error");
+    }
+  });
+
+  elements.resetPasswordForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const token = String(elements.resetTokenInput?.value || "").trim();
+    const email = String(elements.recoveryEmailInput?.value || "").trim().toLowerCase();
+    const password = String(elements.resetPasswordInput?.value || "");
+
+    if (!email || !token || password.length < 8) {
+      setFormStatus(elements.resetStatus, "Email, verification code, and a new password of at least 8 characters are required.", "error");
+      return;
+    }
+
+    try {
+      setFormStatus(elements.resetStatus, "Verifying code and resetting password...");
+      const response = await requestJson("/api/auth/reset-password", {
+        method: "POST",
+        auth: false,
+        body: {
+          email,
+          code: token,
+          password
+        }
+      });
+      elements.resetPasswordForm.reset();
+      elements.resetPasswordForm.hidden = true;
+      returnToLoginFromRecovery(response.message || "Password reset successful. Please login.");
+    } catch (error) {
+      setFormStatus(elements.resetStatus, getFriendlyErrorMessage(error, "Could not reset password."), "error");
+    }
+  });
+
+  elements.authForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(elements.authForm);
+    const email = String(formData.get("email") || "").trim().toLowerCase();
+    const password = String(formData.get("password") || "");
+    const name = String(formData.get("name") || "").trim();
+    const companyName = String(formData.get("companyName") || "").trim();
+
+    if (!email || !password) {
+      setFormStatus(elements.authStatus, "Email and password are required.", "error");
+      return;
+    }
+
+    if (state.authMode === "register") {
+      if (!name || name.length < 2) {
+        setFormStatus(elements.authStatus, "Full name is required for registration.", "error");
         return;
       }
 
-      links.forEach((link) => {
-        link.classList.toggle("active", link.getAttribute("href") === `#${visibleEntry.target.id}`);
-      });
-    },
-    {
-      rootMargin: "-28% 0px -58% 0px",
-      threshold: [0.08, 0.18, 0.32]
+      if (password.length < 8) {
+        setFormStatus(elements.authStatus, "Password must be at least 8 characters.", "error");
+        return;
+      }
+
+      if (state.authRole === "EMPLOYER" && !companyName) {
+        setFormStatus(elements.authStatus, "Company name is required for Employer registration.", "error");
+        return;
+      }
     }
-  );
 
-  sections.forEach((section) => observer.observe(section));
-}
-
-function setupRevealAnimation() {
-  const sections = document.querySelectorAll(".reveal");
-
-  if (!("IntersectionObserver" in window) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    sections.forEach((section) => section.classList.add("in-view"));
-    return;
-  }
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("in-view");
-        }
-      });
-    },
-    {
-      threshold: 0.15
+    if (state.authMode === "register" && seededDemoEmails.has(email)) {
+      state.authMode = "login";
+      renderAuthModal();
+      setFormStatus(
+        elements.authStatus,
+        "That is a seeded demo account. Switch to Login and use the same email/password.",
+        "error"
+      );
+      return;
     }
-  );
 
-  sections.forEach((section) => observer.observe(section));
+    try {
+      setFormStatus(elements.authStatus, state.authMode === "register" ? "Creating account..." : "Signing in...");
+      const response = state.authMode === "register"
+        ? await requestJson("/api/auth/register", {
+          method: "POST",
+          auth: false,
+          body: {
+            name,
+            email,
+            password,
+            role: state.authRole,
+            ...(state.authRole === "EMPLOYER" ? { companyName: companyName || `${name || "Employer"} Company` } : {})
+          }
+        })
+        : await requestJson("/api/auth/login", {
+          method: "POST",
+          auth: false,
+          body: {
+            email,
+            password,
+            role: state.authRole
+          }
+        });
+
+      applySession(response.data || {});
+      elements.authForm.reset();
+      closeAuthModal();
+      await refreshAfterMutation();
+      showToast(`${roleLabel()} ${state.authMode === "register" ? "registered" : "logged in"} successfully.`, "success");
+      window.location.hash = state.currentRole === "JOB_SEEKER"
+        ? "#jobSeekerDashboard"
+        : state.currentRole === "EMPLOYER"
+          ? "#employerDashboard"
+          : "#adminDashboard";
+    } catch (error) {
+      setFormStatus(elements.authStatus, getFriendlyErrorMessage(error, "Authentication failed."), "error");
+    }
+  });
+
+  elements.logoutButton?.addEventListener("click", async () => {
+    try {
+      if (state.authToken) {
+        await requestJson("/api/auth/logout", { method: "POST" });
+      }
+    } catch (_error) {
+      // Local logout still clears the session.
+    }
+
+    closeCvModal();
+    closeJobModal();
+    closeAuthModal();
+    clearSession();
+    await loadPublicData();
+    renderAll();
+    showToast("Logged out.", "success");
+    window.location.hash = "#home";
+  });
 }
 
 function setupModalEvents() {
-  if (elements.openAuthModalButton) {
-    elements.openAuthModalButton.addEventListener("click", () => {
-      openAuthModal();
-    });
-  }
+  elements.closeModalButton?.addEventListener("click", closeJobModal);
+  elements.modalBackdrop?.addEventListener("click", closeJobModal);
+  elements.closeCvModalButton?.addEventListener("click", closeCvModal);
+  elements.cvModalBackdrop?.addEventListener("click", closeCvModal);
+  elements.downloadCvButton?.addEventListener("click", () => {
+    const fileUrl = elements.downloadCvButton.dataset.fileUrl;
+    const fileName = elements.downloadCvButton.dataset.fileName || "cv-file";
 
-  if (elements.closeAuthModalButton) {
-    elements.closeAuthModalButton.addEventListener("click", closeAuthModal);
-  }
-
-  if (elements.authModalBackdrop) {
-    elements.authModalBackdrop.addEventListener("click", closeAuthModal);
-  }
-
-  if (elements.employeeAuthTab) {
-    elements.employeeAuthTab.addEventListener("click", () => {
-      setAuthModalRole("employee");
-      if (elements.employeeEmail) {
-        elements.employeeEmail.focus();
-      }
-    });
-  }
-
-  if (elements.employerAuthTab) {
-    elements.employerAuthTab.addEventListener("click", () => {
-      setAuthModalRole("employer");
-      if (elements.employerEmail) {
-        elements.employerEmail.focus();
-      }
-    });
-  }
-
-  if (elements.closeModalButton) {
-    elements.closeModalButton.addEventListener("click", closeJobModal);
-  }
-
-  if (elements.modalBackdrop) {
-    elements.modalBackdrop.addEventListener("click", closeJobModal);
-  }
-
-  if (elements.closeCvModalButton) {
-    elements.closeCvModalButton.addEventListener("click", closeCvModal);
-  }
-
-  if (elements.cvModalBackdrop) {
-    elements.cvModalBackdrop.addEventListener("click", closeCvModal);
-  }
-
-  if (elements.downloadCvButton) {
-    elements.downloadCvButton.addEventListener("click", () => {
-      const fileUrl = elements.downloadCvButton.dataset.fileUrl;
-      const fileName = elements.downloadCvButton.dataset.fileName || "cv-file";
-
-      if (!fileUrl) {
-        setFormStatus(elements.cvModalStatus, "CV file is not ready yet.", "error");
-        return;
-      }
-
+    if (fileUrl) {
       triggerFileDownload(fileUrl, fileName);
-    });
-  }
+    }
+  });
 
   document.addEventListener("keydown", (event) => {
-    const activeModal = (elements.authModal && !elements.authModal.hidden)
-      ? elements.authModal
-      : ((elements.cvModal && !elements.cvModal.hidden)
-        ? elements.cvModal
-        : ((elements.jobModal && !elements.jobModal.hidden) ? elements.jobModal : null));
-
-    if (!activeModal) {
+    if (event.key !== "Escape") {
       return;
     }
 
-    if (event.key === "Tab") {
-      trapFocusInModal(activeModal, event);
-      return;
-    }
-
-    if (event.key === "Escape") {
-      if (activeModal === elements.authModal) {
-        closeAuthModal();
-        return;
-      }
-
-      if (activeModal === elements.cvModal) {
-        closeCvModal();
-        return;
-      }
-
+    if (elements.authModal && !elements.authModal.hidden) {
+      closeAuthModal();
+    } else if (elements.cvModal && !elements.cvModal.hidden) {
+      closeCvModal();
+    } else if (elements.jobModal && !elements.jobModal.hidden) {
       closeJobModal();
     }
   });
 }
 
-async function refreshJobsAndApplications() {
-  if (!state.apiOnline) {
-    renderJobCards();
-    renderListings();
-    renderApplications();
-    return;
-  }
-
-  try {
-    const jobResponse = await requestJson("/api/jobs");
-
-    state.jobs = Array.isArray(jobResponse.data) ? jobResponse.data : [];
-    state.managedJobIds = new Set();
-    state.applications = [];
-
-    if (hasEmployerSession()) {
-      const authHeaders = getEmployerAuthHeaders();
-      const [managedJobResponse, applicationResponse] = await Promise.all([
-        requestJson("/api/jobs", { headers: authHeaders }),
-        requestJson("/api/applications", { headers: authHeaders })
-      ]);
-
-      const managedJobs = Array.isArray(managedJobResponse.data) ? managedJobResponse.data : [];
-      state.managedJobIds = new Set(managedJobs.map((job) => job.id));
-      state.applications = Array.isArray(applicationResponse.data) ? applicationResponse.data : [];
-    }
-  } catch (error) {
-    if ((error.status === 401 || error.status === 403) && hasEmployerToken()) {
-      clearEmployerSession();
-      setFormStatus(elements.employerAuthStatus, "Session expired. Please sign in again.", "error");
-
-      try {
-        const jobResponse = await requestJson("/api/jobs");
-        state.jobs = Array.isArray(jobResponse.data) ? jobResponse.data : [];
-        state.managedJobIds = new Set();
-        state.applications = [];
-        state.apiOnline = true;
-        setApiStatus(true);
-      } catch (_fallbackError) {
-        setApiStatus(false, "Could not refresh data from backend.");
-        state.apiOnline = false;
-        state.managedJobIds = new Set();
-        state.applications = [];
-      }
-    } else {
-      setApiStatus(false, "Could not refresh data from backend.");
-      state.apiOnline = false;
-      state.managedJobIds = new Set();
-      state.applications = [];
-    }
-  }
-
-  renderJobCards();
-  renderListings();
-  renderApplications();
-}
-
-function setupJobSearch() {
-  if (!elements.jobSearch) {
-    return;
-  }
-
-  elements.jobSearch.addEventListener("input", (event) => {
+function setupJobEvents() {
+  elements.jobSearch?.addEventListener("input", (event) => {
     state.currentKeyword = event.target.value;
-    if (elements.filterChips) {
-      elements.filterChips.querySelectorAll(".filter-chip").forEach((chip) => {
-        chip.classList.toggle("active", !event.target.value && chip.dataset.filter === "");
-      });
-    }
     renderJobCards();
   });
 
-  if (elements.filterChips) {
-    elements.filterChips.addEventListener("click", (event) => {
-      const chip = event.target.closest(".filter-chip");
+  elements.filterChips?.addEventListener("click", (event) => {
+    const chip = event.target.closest(".filter-chip");
+    if (!chip) {
+      return;
+    }
 
-      if (!chip) {
-        return;
-      }
+    const value = chip.dataset.filter || "";
+    state.currentKeyword = value;
 
-      const value = chip.dataset.filter || "";
+    if (elements.jobSearch) {
       elements.jobSearch.value = value;
-      state.currentKeyword = value;
+    }
 
-      elements.filterChips.querySelectorAll(".filter-chip").forEach((item) => {
-        item.classList.toggle("active", item === chip);
-      });
-
-      renderJobCards();
-      elements.jobSearch.focus();
+    elements.filterChips.querySelectorAll(".filter-chip").forEach((item) => {
+      item.classList.toggle("active", item === chip);
     });
-  }
-}
 
-function setupJobActions() {
-  if (!elements.jobList) {
-    return;
-  }
+    renderJobCards();
+  });
 
-  elements.jobList.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action]");
+  elements.jobList?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action]");
     if (!button) {
       return;
     }
 
     const jobId = Number.parseInt(button.dataset.id, 10);
-    if (Number.isNaN(jobId)) {
-      return;
-    }
-
     const job = getJobById(jobId);
     if (!job) {
       return;
     }
 
-    if (button.dataset.action === "details") {
+    const action = button.dataset.action;
+
+    if (action === "details") {
       openJobModal(job);
       return;
     }
 
-    if (button.dataset.action === "apply") {
+    if (action === "login-to-apply") {
+      openAuthModal("login", "JOB_SEEKER");
+      setFormStatus(elements.jobActionStatus, "Login or register as a Job Seeker to apply.", "");
+      return;
+    }
+
+    if (action === "report-job") {
+      if (!isAuthenticated()) {
+        openAuthModal("login", "JOB_SEEKER");
+        setFormStatus(elements.jobActionStatus, "Login first to report a suspicious job.", "");
+        return;
+      }
+
+      const reason = window.prompt("Why are you reporting this job?");
+      if (!reason) {
+        return;
+      }
+
+      try {
+        await requestJson("/api/reports", {
+          method: "POST",
+          body: {
+            targetType: "JOB",
+            targetId: jobId,
+            reason
+          }
+        });
+        showToast("Report submitted for admin review.", "success");
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not submit report.", "error");
+        }
+      }
+      return;
+    }
+
+    if (action === "apply") {
+      if (state.currentRole !== "JOB_SEEKER") {
+        openAuthModal("login", "JOB_SEEKER");
+        return;
+      }
+
+      if (isAlreadyApplied(jobId)) {
+        showToast("You have already applied for this job.", "success");
+        renderJobCards();
+        return;
+      }
+
       openJobModal(job, true);
+      return;
+    }
+
+    if (action === "save-job") {
+      if (state.currentRole !== "JOB_SEEKER") {
+        openAuthModal("login", "JOB_SEEKER");
+        return;
+      }
+
+      const wasSaved = state.savedJobIds.has(jobId);
+
+      try {
+        await requestJson(`/api/saved-jobs/${jobId}`, {
+          method: wasSaved ? "DELETE" : "POST"
+        });
+        await loadJobSeekerData();
+        renderAll();
+        setFormStatus(elements.jobActionStatus, wasSaved ? "Saved job removed." : "Job saved.", "success");
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          setFormStatus(elements.jobActionStatus, error.message || "Could not update saved job.", "error");
+        }
+      }
     }
   });
 }
 
-function getNextLocalJobId() {
-  if (state.jobs.length === 0) {
-    return 1;
-  }
+function setupApplicationForm() {
+  elements.cvUploadModeButton?.addEventListener("click", () => setCvMode("upload"));
+  elements.cvBuilderModeButton?.addEventListener("click", () => {
+    loadCvBuilderDraft();
+    setCvMode("builder");
+  });
 
-  return Math.max(...state.jobs.map((job) => job.id || 0)) + 1;
-}
+  elements.cvBuilderPanel?.addEventListener("input", (event) => {
+    if (event.target.closest("[data-cv-scalar], [data-cv-field]")) {
+      state.generatedCvFile = null;
+      saveCvBuilderDraft();
+      if (elements.cvBuilderPreview && !elements.cvBuilderPreview.hidden) {
+        renderCvBuilderPreview();
+      }
+    }
+  });
 
-function setupEmployeeAuthForm() {
-  if (!elements.employeeAuthForm) {
-    return;
-  }
+  elements.cvBuilderPanel?.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-cv-remove]");
+    if (removeButton) {
+      removeButton.closest("[data-cv-item]")?.remove();
+      state.generatedCvFile = null;
+      saveCvBuilderDraft();
+      if (elements.cvBuilderPreview && !elements.cvBuilderPreview.hidden) {
+        renderCvBuilderPreview();
+      }
+    }
+  });
 
-  elements.employeeAuthForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const addCvBuilderRow = (type) => {
+    addCvBuilderItem(type);
+    state.generatedCvFile = null;
+    saveCvBuilderDraft();
+    if (elements.cvBuilderPreview && !elements.cvBuilderPreview.hidden) {
+      renderCvBuilderPreview();
+    }
+  };
 
-    const employeeEmail = normalizeEmployeeEmail(elements.employeeEmail?.value || "");
-    const employeePassword = String(elements.employeePassword?.value || "").trim();
+  elements.addEducationButton?.addEventListener("click", () => addCvBuilderRow("education"));
+  elements.addSkillCategoryButton?.addEventListener("click", () => addCvBuilderRow("skills"));
+  elements.addProjectButton?.addEventListener("click", () => addCvBuilderRow("projects"));
+  elements.addAchievementButton?.addEventListener("click", () => addCvBuilderRow("achievements"));
+  elements.addActivityButton?.addEventListener("click", () => addCvBuilderRow("activities"));
+  elements.addReferenceButton?.addEventListener("click", () => addCvBuilderRow("references"));
+  elements.cvBuilderPhoto?.addEventListener("change", () => {
+    const file = elements.cvBuilderPhoto.files?.[0];
+    state.generatedCvFile = null;
 
-    if (!employeeEmail || !employeePassword) {
-      setFormStatus(elements.employeeAuthStatus, "Employee email and password are required.", "error");
+    if (!file) {
+      state.cvBuilderPhotoDataUrl = "";
+      state.cvBuilderPhotoPdfData = null;
       return;
     }
 
-    setFormStatus(
-      elements.employeeAuthStatus,
-      state.apiOnline ? "Signing in as employee..." : "Preparing offline employee session...",
-      ""
-    );
+    const reader = new FileReader();
+    reader.addEventListener("load", async () => {
+      state.cvBuilderPhotoDataUrl = String(reader.result || "");
+      try {
+        state.cvBuilderPhotoPdfData = await prepareCvBuilderPhotoForPdf(state.cvBuilderPhotoDataUrl);
+        renderCvBuilderPreview();
+      } catch (error) {
+        state.cvBuilderPhotoPdfData = null;
+        setFormStatus(elements.cvBuilderStatus, error.message || "Could not add profile picture to the generated PDF.", "error");
+      }
+    });
+    reader.readAsDataURL(file);
+  });
+  elements.previewCvBuilderButton?.addEventListener("click", renderCvBuilderPreview);
+  elements.downloadCvBuilderButton?.addEventListener("click", downloadCvBuilderPdf);
+  elements.resetCvBuilderButton?.addEventListener("click", resetCvBuilderForm);
+  elements.useGeneratedCvButton?.addEventListener("click", () => {
+    if (!renderCvBuilderPreview()) {
+      return;
+    }
+
+    const data = getCvBuilderData();
+    state.generatedCvFile = createStructuredCvPdfFile(data);
+    setFormStatus(elements.cvBuilderStatus, "Generated CV is attached to this application.", "success");
+  });
+
+  elements.applyForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    if (state.currentRole !== "JOB_SEEKER") {
+      setFormStatus(elements.applyStatus, "Only Job Seekers can apply.", "error");
+      return;
+    }
+
+    const formData = new FormData(elements.applyForm);
+    const jobId = Number.parseInt(String(formData.get("jobId") || ""), 10);
+
+    if (isAlreadyApplied(jobId)) {
+      setFormStatus(elements.applyStatus, "You have already applied for this job.", "success");
+      renderJobCards();
+      return;
+    }
+
+    if (state.cvMode === "builder") {
+      if (!state.generatedCvFile) {
+        if (!renderCvBuilderPreview()) {
+          return;
+        }
+        state.generatedCvFile = createStructuredCvPdfFile(getCvBuilderData());
+      }
+
+      formData.delete("cvPhoto");
+      formData.set("cvFile", state.generatedCvFile, state.generatedCvFile.name);
+    }
+
+    const cvFile = formData.get("cvFile");
+
+    if (!(cvFile instanceof File) || !cvFile.name) {
+      setFormStatus(elements.applyStatus, state.cvMode === "builder"
+        ? "Generate the CV first, then submit your application."
+        : "A CV file is required.",
+      "error");
+      return;
+    }
 
     try {
-      if (state.apiOnline) {
-        const loginResponse = await requestJson("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify({
-            role: "employee",
-            employeeEmail,
-            employeePassword
-          })
-        });
-
-        const loginData = loginResponse.data || {};
-        setEmployeeSession(
-          loginData.email || employeeEmail,
-          loginData.accessToken,
-          loginData.expiresAt,
-          loginData.displayName || ""
-        );
-      } else {
-        const isDemoLogin = (
-          employeeEmail === fallbackEmployeeAccount.email
-          && employeePassword === fallbackEmployeeAccount.password
-        );
-
-        if (!isDemoLogin) {
-          throw new Error("Offline mode supports demo employee login only.");
+      setFormStatus(elements.applyStatus, "Submitting application...");
+      const response = await requestJson("/api/applications", {
+        method: "POST",
+        body: formData
+      });
+      const appliedJobId = getApplicationJobId(response.data) || jobId;
+      if (appliedJobId) {
+        state.appliedJobIds.add(appliedJobId);
+      }
+      elements.applyForm.reset();
+      state.generatedCvFile = null;
+      closeJobModal();
+      await refreshAfterMutation();
+      showToast("Application submitted successfully.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        if (error.status === 409 || /already applied/i.test(error.message || "")) {
+          state.appliedJobIds.add(jobId);
+          renderAll();
+          setFormStatus(elements.applyStatus, "You have already applied for this job.", "success");
+          showToast("You have already applied for this job.", "success");
+          return;
         }
 
-        setEmployeeSession(
-          employeeEmail,
-          "",
-          "",
-          fallbackEmployeeAccount.displayName
-        );
+        setFormStatus(elements.applyStatus, error.message || "Could not submit application.", "error");
       }
-
-      if (elements.employeePassword) {
-        elements.employeePassword.value = "";
-      }
-
-      setFormStatus(
-        elements.employeeAuthStatus,
-        state.apiOnline ? "Employee login successful." : "Offline employee session ready.",
-        "success"
-      );
-      applyEmployeeSessionToForm();
-      closeAuthModal();
-    } catch (error) {
-      setFormStatus(elements.employeeAuthStatus, error.message || "Could not sign in as employee.", "error");
     }
   });
 }
 
-function setupEmployeeLogoutAction() {
-  if (!elements.employeeLogoutButton) {
-    return;
-  }
-
-  elements.employeeLogoutButton.addEventListener("click", async () => {
-    if (!hasEmployeeSession()) {
-      return;
-    }
-
-    const authHeaders = getEmployeeAuthHeaders();
-
-    if (state.apiOnline && hasEmployeeToken()) {
-      try {
-        await requestJson("/api/auth/logout", {
-          method: "POST",
-          headers: {
-            ...authHeaders
-          }
-        });
-      } catch (_error) {
-        // Best effort: clear local session even if logout API fails.
-      }
-    }
-
-    clearEmployeeSession();
-
-    if (elements.employeePassword) {
-      elements.employeePassword.value = "";
-    }
-
-    if (elements.applyEmail) {
-      elements.applyEmail.value = "";
-    }
-
-    setFormStatus(elements.employeeAuthStatus, "Employee signed out.", "");
-    closeAuthModal();
-  });
-}
-
-function setupEmployerAuthForm() {
-  if (!elements.employerAuthForm) {
-    return;
-  }
-
-  elements.employerAuthForm.addEventListener("submit", async (event) => {
+function setupJobSeekerEvents() {
+  elements.profileForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const employerEmail = normalizeEmployerEmail(elements.employerEmail?.value || "");
-    const employerKey = String(elements.employerKey?.value || "").trim();
-
-    if (!employerEmail || !employerKey) {
-      setFormStatus(elements.employerAuthStatus, "Employer email and access key are required.", "error");
+    if (state.currentRole !== "JOB_SEEKER") {
       return;
     }
 
-    setFormStatus(elements.employerAuthStatus, state.apiOnline ? "Signing in..." : "Preparing offline session...", "");
-
-    try {
-      if (state.apiOnline) {
-        const loginResponse = await requestJson("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify({
-            role: "employer",
-            employerEmail,
-            employerKey
-          })
-        });
-
-        const loginData = loginResponse.data || {};
-        setEmployerSession(
-          loginData.employerEmail || employerEmail,
-          "",
-          loginData.accessToken,
-          loginData.expiresAt
-        );
-      } else {
-        setEmployerSession(employerEmail, employerKey, "", "");
-      }
-
-      await refreshJobsAndApplications();
-      setFormStatus(
-        elements.employerAuthStatus,
-        state.apiOnline ? "Login successful. Employer dashboard loaded." : "Offline session ready.",
-        "success"
-      );
-      closeAuthModal();
-    } catch (error) {
-      setFormStatus(elements.employerAuthStatus, error.message || "Could not load employer dashboard.", "error");
-    }
-  });
-}
-
-function setupEmployerLogoutAction() {
-  if (!elements.employerLogoutButton) {
-    return;
-  }
-
-  elements.employerLogoutButton.addEventListener("click", async () => {
-    if (!hasEmployerSession()) {
-      return;
-    }
-
-    const authHeaders = getEmployerAuthHeaders();
-
-    if (state.apiOnline && hasEmployerToken()) {
-      try {
-        await requestJson("/api/auth/logout", {
-          method: "POST",
-          headers: {
-            ...authHeaders
-          }
-        });
-      } catch (_error) {
-        // Best effort: clear local session even if logout API fails.
-      }
-    }
-
-    closeCvModal();
-    closeAuthModal();
-    clearEmployerSession();
-    state.managedJobIds = new Set();
-    state.applications = [];
-
-    await refreshJobsAndApplications();
-    setFormStatus(elements.employerAuthStatus, "Signed out. Sign in to access employer tools.", "");
-  });
-}
-
-function setupApplicationActions() {
-  if (!elements.applicationList) {
-    return;
-  }
-
-  elements.applicationList.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) {
-      return;
-    }
-
-    const action = button.dataset.action;
-    if (action !== "view-cv" && action !== "download-cv") {
-      return;
-    }
-
-    const applicationId = Number.parseInt(button.dataset.id, 10);
-    if (Number.isNaN(applicationId)) {
-      return;
-    }
-
-    const application = state.applications.find((item) => item.id === applicationId);
-    if (!application) {
-      setFormStatus(elements.employerAuthStatus, "Application not found.", "error");
-      return;
-    }
-
-    if (application.cvUrl && String(application.cvUrl).startsWith("blob:")) {
-      const localFileName = getSafeFileName(application.cvOriginalName, `application-${application.id}-cv`);
-
-      if (action === "download-cv") {
-        triggerFileDownload(application.cvUrl, localFileName);
-        return;
-      }
-
-      setCvReturnFocus(button);
-
-      openCvModal({
-        fileUrl: application.cvUrl,
-        fileName: localFileName,
-        mimeType: application.cvMimeType || "",
-        revokeOnClose: false
-      });
-      return;
-    }
-
-    if (!state.apiOnline) {
-      setFormStatus(elements.employerAuthStatus, "CV view requires backend live mode.", "error");
-      return;
-    }
-
-    if (!hasEmployerSession()) {
-      setFormStatus(elements.employerAuthStatus, "Sign in first to view CV files.", "error");
-      openAuthModal("employer");
-      return;
-    }
-
-    try {
-      const previewRequestId = action === "view-cv" ? showCvPreviewLoading(button) : 0;
-      const loadingMessage = action === "download-cv" ? "Preparing CV download..." : "Opening CV preview...";
-      setFormStatus(elements.employerAuthStatus, loadingMessage, "");
-
-      const {
-        fileBlob,
-        fileName,
-        mimeType
-      } = await fetchProtectedCvBlob(applicationId);
-      const fileUrl = URL.createObjectURL(fileBlob);
-
-      if (action === "download-cv") {
-        triggerFileDownload(fileUrl, fileName);
-        setTimeout(() => URL.revokeObjectURL(fileUrl), 60_000);
-        setFormStatus(elements.employerAuthStatus, "CV downloaded successfully.", "success");
-        return;
-      }
-
-      if (previewRequestId !== state.cvPreview.requestId) {
-        URL.revokeObjectURL(fileUrl);
-        return;
-      }
-
-      openCvModal({
-        fileUrl,
-        fileName,
-        mimeType,
-        revokeOnClose: true
-      });
-      setFormStatus(elements.employerAuthStatus, "CV preview opened.", "success");
-    } catch (error) {
-      if (action === "view-cv" && elements.cvModal && !elements.cvModal.hidden) {
-        setFormStatus(elements.cvModalStatus, error.message || "Could not open CV file.", "error");
-      }
-      setFormStatus(elements.employerAuthStatus, error.message || "Could not open CV file.", "error");
-    }
-  });
-}
-
-function setupPostJobForm() {
-  if (!elements.postJobForm) {
-    return;
-  }
-
-  elements.postJobForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setFormStatus(elements.postJobStatus, "Posting job...");
-
-    const formData = new FormData(elements.postJobForm);
+    const formData = new FormData(elements.profileForm);
     const payload = {
-      title: String(formData.get("title") || "").trim(),
-      company: String(formData.get("company") || "").trim(),
+      headline: String(formData.get("headline") || "").trim(),
+      phone: String(formData.get("phone") || "").trim(),
       location: String(formData.get("location") || "").trim(),
-      type: String(formData.get("type") || "").trim(),
-      salary: String(formData.get("salary") || "").trim(),
-      description: String(formData.get("description") || "").trim(),
-      requirements: String(formData.get("requirements") || "").trim()
+      skills: String(formData.get("skills") || "").trim(),
+      bio: String(formData.get("bio") || "").trim(),
+      portfolioUrl: String(formData.get("portfolioUrl") || "").trim(),
+      githubUrl: String(formData.get("githubUrl") || "").trim()
     };
 
-    if (!payload.title || !payload.company) {
-      setFormStatus(elements.postJobStatus, "Job title and company are required.", "error");
-      return;
-    }
-
-    if (!hasEmployerSession()) {
-      setFormStatus(elements.postJobStatus, "Sign in with employer email and access key first.", "error");
-      openAuthModal("employer");
-      return;
-    }
-
     try {
-      if (state.apiOnline) {
-        await requestJson("/api/jobs", {
-          method: "POST",
-          headers: {
-            ...getEmployerAuthHeaders()
-          },
-          body: JSON.stringify({
-            ...payload
-          })
-        });
-      } else {
-        const localJob = {
-          id: getNextLocalJobId(),
-          title: payload.title,
-          company: payload.company,
-          location: payload.location || "Unknown",
-          type: payload.type || "Not specified",
-          salary: payload.salary || "Not specified",
-          description: payload.description || "No description provided yet.",
-          requirements: normalizeRequirements(payload.requirements),
-          employerEmail: state.employerSession.employerEmail,
-          employerKey: state.employerSession.employerKey,
-          postedAt: new Date().toISOString()
-        };
-        state.jobs = [localJob, ...state.jobs];
-      }
-
-      elements.postJobForm.reset();
-      setFormStatus(elements.postJobStatus, "Job posted successfully.", "success");
-      await refreshJobsAndApplications();
+      setFormStatus(elements.profileStatus, "Saving profile...");
+      await requestJson("/api/profile/me", {
+        method: "PATCH",
+        body: payload
+      });
+      await loadJobSeekerData();
+      renderAll();
+      setFormStatus(elements.profileStatus, "Profile saved.", "success");
     } catch (error) {
-      setFormStatus(elements.postJobStatus, error.message || "Could not post job.", "error");
+      if (!handleAuthError(error)) {
+        setFormStatus(elements.profileStatus, error.message || "Could not save profile.", "error");
+      }
     }
   });
-}
 
-function setupListingActions() {
-  if (!elements.listingGrid) {
-    return;
-  }
-
-  elements.listingGrid.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action='delete-job']");
+  elements.savedJobsList?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action]");
     if (!button) {
       return;
     }
 
     const jobId = Number.parseInt(button.dataset.id, 10);
-    if (Number.isNaN(jobId)) {
-      return;
-    }
+    const job = getJobById(jobId) || state.savedJobs.find((item) => (item.jobId || item.job?.id) === jobId)?.job;
 
-    if (!hasEmployerSession()) {
-      setFormStatus(elements.employerAuthStatus, "Sign in first to manage listings.", "error");
-      openAuthModal("employer");
-      return;
-    }
-
-    const targetJob = getJobById(jobId);
-    if (!targetJob) {
-      return;
-    }
-
-    const shouldDelete = window.confirm(`Remove listing for ${targetJob.title}?`);
-    if (!shouldDelete) {
-      return;
-    }
-
-    try {
-      if (state.apiOnline) {
-        await requestJson(`/api/jobs/${jobId}`, {
-          method: "DELETE",
-          headers: {
-            ...getEmployerAuthHeaders()
-          }
-        });
-      } else {
-        const ownedJob = state.jobs.find((job) => (
-          job.id === jobId
-          && normalizeEmployerEmail(job.employerEmail) === state.employerSession.employerEmail
-          && String(job.employerKey || "") === state.employerSession.employerKey
-        ));
-
-        if (!ownedJob) {
-          throw new Error("You are not allowed to remove this job listing.");
+    if (button.dataset.action === "details" && job) {
+      openJobModal(job);
+    } else if (button.dataset.action === "apply" && job) {
+      if (isAlreadyApplied(jobId)) {
+        showToast("You have already applied for this job.", "success");
+        renderAll();
+        return;
+      }
+      openJobModal(job, true);
+    } else if (button.dataset.action === "save-job") {
+      try {
+        await requestJson(`/api/saved-jobs/${jobId}`, { method: "DELETE" });
+        await loadJobSeekerData();
+        renderAll();
+        showToast("Saved job removed.", "success");
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not remove saved job.", "error");
         }
       }
-
-      state.jobs = state.jobs.filter((job) => job.id !== jobId);
-      state.applications = state.applications.filter((application) => application.jobId !== jobId);
-      renderJobCards();
-      renderListings();
-      renderApplications();
-    } catch (error) {
-      setFormStatus(elements.postJobStatus, error.message || "Could not remove listing.", "error");
     }
   });
 }
 
-function setupApplyForm() {
-  if (!elements.applyForm) {
-    return;
-  }
-
-  elements.applyForm.addEventListener("submit", async (event) => {
+function setupEmployerEvents() {
+  elements.companyForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setFormStatus(elements.applyStatus, "Submitting application...");
 
-    const formData = new FormData(elements.applyForm);
+    if (state.currentRole !== "EMPLOYER") {
+      return;
+    }
+
+    const formData = new FormData(elements.companyForm);
+    const payload = Object.fromEntries(formData.entries());
+
+    try {
+      setFormStatus(elements.companyStatus, "Saving company...");
+      await requestJson("/api/employer/company", {
+        method: "PATCH",
+        body: payload
+      });
+      await loadEmployerData();
+      renderAll();
+      setFormStatus(elements.companyStatus, "Company profile saved.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        setFormStatus(elements.companyStatus, error.message || "Could not save company.", "error");
+      }
+    }
+  });
+
+  elements.postJobForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    if (state.currentRole !== "EMPLOYER") {
+      setFormStatus(elements.postJobStatus, "Only Employers can post jobs.", "error");
+      return;
+    }
+
+    const formData = new FormData(elements.postJobForm);
     const payload = {
-      jobId: Number.parseInt(String(formData.get("jobId") || ""), 10),
-      applicantName: String(formData.get("applicantName") || "").trim(),
-      applicantEmail: String(formData.get("applicantEmail") || "").trim(),
-      applicantPhone: String(formData.get("applicantPhone") || "").trim(),
-      coverLetter: String(formData.get("coverLetter") || "").trim()
+      title: String(formData.get("title") || "").trim(),
+      location: String(formData.get("location") || "").trim(),
+      type: String(formData.get("type") || "").trim(),
+      salaryMin: formData.get("salaryMin") ? Number(formData.get("salaryMin")) : undefined,
+      salaryMax: formData.get("salaryMax") ? Number(formData.get("salaryMax")) : undefined,
+      description: String(formData.get("description") || "").trim(),
+      requirements: String(formData.get("requirements") || "").trim()
     };
-    const cvFile = formData.get("cvFile");
-    const hasCv = cvFile instanceof File && cvFile.name;
 
-    if (Number.isNaN(payload.jobId) || !payload.applicantName || !payload.applicantEmail || !hasCv) {
-      setFormStatus(elements.applyStatus, "Name, email, and CV file are required.", "error");
+    try {
+      setFormStatus(elements.postJobStatus, "Posting job...");
+      const response = await requestJson("/api/jobs", {
+        method: "POST",
+        body: payload
+      });
+      elements.postJobForm.reset();
+      await refreshAfterMutation();
+      setFormStatus(elements.postJobStatus, response.message || "Job posted successfully.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        setFormStatus(elements.postJobStatus, error.message || "Could not post job.", "error");
+      }
+    }
+  });
+
+  elements.employerJobsList?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action='employer-job-status']");
+    if (!button) {
       return;
     }
 
-    if (!hasEmployeeSession()) {
-      setFormStatus(elements.applyStatus, "Sign in as employee before submitting an application.", "error");
-      openAuthModal("employee");
+    const jobId = Number.parseInt(button.dataset.id, 10);
+    const status = button.dataset.status;
+
+    try {
+      await requestJson(`/api/jobs/${jobId}/status`, {
+        method: "PATCH",
+        body: { status }
+      });
+      await refreshAfterMutation();
+      showToast(`Job ${status.toLowerCase()} successfully.`, "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update job status.", "error");
+      }
+    }
+  });
+
+  elements.employerApplicationsList?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-action='application-status']");
+    if (!select) {
       return;
     }
 
-    if (state.apiOnline && !hasEmployeeToken()) {
-      setFormStatus(elements.applyStatus, "Employee session expired. Sign in again to apply.", "error");
-      openAuthModal("employee");
+    const applicationId = Number.parseInt(select.dataset.id, 10);
+    const status = select.value;
+
+    try {
+      await requestJson(`/api/applications/${applicationId}/status`, {
+        method: "PATCH",
+        body: { status }
+      });
+      await loadEmployerData();
+      renderEmployerDashboard();
+      showToast("Application status updated.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update application status.", "error");
+      }
+    }
+  });
+
+  elements.employerApplicationsList?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) {
+      return;
+    }
+
+    const applicationId = Number.parseInt(button.dataset.id, 10);
+
+    if (button.dataset.action === "save-note") {
+      const noteField = elements.employerApplicationsList.querySelector(`[data-note-id="${applicationId}"]`);
+      const employerNote = noteField ? noteField.value : "";
+
+      try {
+        await requestJson(`/api/applications/${applicationId}/note`, {
+          method: "PATCH",
+          body: { employerNote }
+        });
+        await loadEmployerData();
+        renderEmployerDashboard();
+        showToast("Private note saved.", "success");
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not save note.", "error");
+        }
+      }
+      return;
+    }
+
+    if (button.dataset.action === "download-cv") {
+      try {
+        const { fileBlob, fileName, mimeType } = await fetchProtectedCvBlob(applicationId);
+        const fileUrl = URL.createObjectURL(fileBlob);
+        openCvModal({ fileUrl, fileName, mimeType, revokeOnClose: true });
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not open CV.", "error");
+        }
+      }
+    }
+  });
+}
+
+function setupAdminEvents() {
+  elements.adminUsersTable?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action='toggle-user']");
+    if (!button) {
       return;
     }
 
     try {
-      let createdApplication;
-
-      if (state.apiOnline) {
-        const multipartPayload = new FormData();
-        multipartPayload.append("jobId", String(payload.jobId));
-        multipartPayload.append("applicantName", payload.applicantName);
-        multipartPayload.append("applicantEmail", payload.applicantEmail);
-        multipartPayload.append("applicantPhone", payload.applicantPhone);
-        multipartPayload.append("coverLetter", payload.coverLetter);
-        multipartPayload.append("cvFile", cvFile);
-
-        const authHeaders = getEmployeeAuthHeaders();
-
-        const response = await fetchWithTimeout(`${API_BASE}/api/applications`, {
-          method: "POST",
-          headers: {
-            ...authHeaders
-          },
-          body: multipartPayload
-        });
-
-        const responsePayload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          if ((response.status === 401 || response.status === 403) && hasEmployeeToken()) {
-            clearEmployeeSession();
-            setFormStatus(
-              elements.employeeAuthStatus,
-              responsePayload.message || "Employee session expired. Please sign in again.",
-              "error"
-            );
-            openAuthModal("employee");
-          }
-
-          throw new Error(responsePayload.message || "Could not submit application.");
+      await requestJson(`/api/admin/users/${button.dataset.id}`, {
+        method: "PATCH",
+        body: {
+          isActive: button.dataset.active === "true"
         }
-
-        createdApplication = responsePayload.data;
-      } else {
-        createdApplication = {
-          id: Date.now(),
-          ...payload,
-          cvOriginalName: cvFile.name,
-          cvMimeType: cvFile.type || "",
-          cvUrl: URL.createObjectURL(cvFile),
-          createdAt: new Date().toISOString()
-        };
-      }
-
-      state.applications = [createdApplication, ...state.applications];
-      renderApplications();
-      elements.applyForm.reset();
-      elements.applyJobId.value = String(payload.jobId);
-      setFormStatus(elements.applyStatus, "Application submitted successfully.", "success");
-
-      if (state.apiOnline) {
-        await refreshJobsAndApplications();
-      }
+      });
+      await loadAdminData();
+      renderAdminDashboard();
+      showToast("User updated.", "success");
     } catch (error) {
-      setFormStatus(elements.applyStatus, error.message || "Could not submit application.", "error");
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update user.", "error");
+      }
     }
   });
+
+  elements.adminCompaniesTable?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action='verify-company']");
+    if (!button) {
+      return;
+    }
+
+    try {
+      await requestJson(`/api/admin/companies/${button.dataset.id}/verify`, {
+        method: "PATCH",
+        body: {
+          verified: button.dataset.verified === "true"
+        }
+      });
+      await loadAdminData();
+      renderAdminDashboard();
+      showToast("Company verification updated.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update company.", "error");
+      }
+    }
+  });
+
+  elements.adminJobsTable?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-action='admin-job-status']");
+    if (!select) {
+      return;
+    }
+
+    try {
+      await requestJson(`/api/admin/jobs/${select.dataset.id}/status`, {
+        method: "PATCH",
+        body: {
+          status: select.value
+        }
+      });
+      await loadAdminData();
+      renderAdminDashboard();
+      showToast("Job status updated.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update job.", "error");
+      }
+    }
+  });
+
+  elements.adminApplicationFilters?.addEventListener("input", (event) => {
+    const formData = new FormData(elements.adminApplicationFilters);
+    state.adminApplicationFilters = {
+      search: String(formData.get("search") || ""),
+      status: String(formData.get("status") || "")
+    };
+    renderAdminDashboard();
+  });
+
+  elements.adminApplicationFilters?.addEventListener("submit", (event) => {
+    event.preventDefault();
+  });
+
+  elements.adminApplicationFilters?.addEventListener("change", (event) => {
+    const formData = new FormData(elements.adminApplicationFilters);
+    state.adminApplicationFilters = {
+      search: String(formData.get("search") || ""),
+      status: String(formData.get("status") || "")
+    };
+    renderAdminDashboard();
+  });
+
+  const handleAdminApplicationClick = async (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) {
+      return;
+    }
+
+    const applicationId = Number.parseInt(button.dataset.id, 10);
+
+    if (button.dataset.action === "admin-download-cv") {
+      try {
+        const { fileBlob, fileName, mimeType } = await fetchProtectedCvBlob(applicationId);
+        const fileUrl = URL.createObjectURL(fileBlob);
+        openCvModal({ fileUrl, fileName, mimeType, revokeOnClose: true });
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not open CV.", "error");
+        }
+      }
+      return;
+    }
+
+    if (button.dataset.action === "admin-application-status") {
+      try {
+        await requestJson(`/api/applications/${applicationId}/status`, {
+          method: "PATCH",
+          body: {
+            status: button.dataset.status
+          }
+        });
+        await loadAdminData();
+        renderAdminDashboard();
+        showToast("Application status updated.", "success");
+      } catch (error) {
+        if (!handleAuthError(error)) {
+          showToast(error.message || "Could not update application.", "error");
+        }
+      }
+    }
+  };
+
+  elements.adminApplicationsTable?.addEventListener("click", handleAdminApplicationClick);
+  elements.adminShortlistQueue?.addEventListener("click", handleAdminApplicationClick);
+
+  elements.adminReportsList?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-action='report-status']");
+    if (!select) {
+      return;
+    }
+
+    try {
+      await requestJson(`/api/admin/reports/${select.dataset.id}/status`, {
+        method: "PATCH",
+        body: {
+          status: select.value
+        }
+      });
+      await loadAdminData();
+      renderAdminDashboard();
+      showToast("Report status updated.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not update report.", "error");
+      }
+    }
+  });
+
+  elements.salaryInsightForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(elements.salaryInsightForm);
+    const payload = {
+      roleTitle: String(formData.get("roleTitle") || "").trim(),
+      location: String(formData.get("location") || "").trim(),
+      experienceLevel: String(formData.get("experienceLevel") || "").trim(),
+      salaryMin: Number(formData.get("salaryMin")),
+      salaryMax: Number(formData.get("salaryMax")),
+      source: String(formData.get("source") || "").trim()
+    };
+
+    try {
+      setFormStatus(elements.salaryInsightStatus, "Adding salary insight...");
+      await requestJson("/api/admin/salary-insights", {
+        method: "POST",
+        body: payload
+      });
+      elements.salaryInsightForm.reset();
+      await loadAdminData();
+      renderAdminDashboard();
+      setFormStatus(elements.salaryInsightStatus, "Salary insight added.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        setFormStatus(elements.salaryInsightStatus, error.message || "Could not add salary insight.", "error");
+      }
+    }
+  });
+
+  elements.adminSalaryInsights?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-action='delete-salary']");
+    if (!button) {
+      return;
+    }
+
+    try {
+      await requestJson(`/api/admin/salary-insights/${button.dataset.id}`, {
+        method: "DELETE"
+      });
+      await loadAdminData();
+      renderAdminDashboard();
+      showToast("Salary insight deleted.", "success");
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        showToast(error.message || "Could not delete salary insight.", "error");
+      }
+    }
+  });
+}
+
+function setupEvents() {
+  setupMenu();
+  setupAuthEvents();
+  setupModalEvents();
+  setupJobEvents();
+  setupApplicationForm();
+  setupJobSeekerEvents();
+  setupEmployerEvents();
+  setupAdminEvents();
 }
 
 async function init() {
-  loadEmployeeSession();
-  loadEmployerSession();
-  setupMenu();
-  setupActiveNavigation();
-  setupRevealAnimation();
-  setupModalEvents();
-  setAuthModalRole("employee");
-  setupJobSearch();
-  setupJobActions();
-  setupEmployeeAuthForm();
-  setupEmployeeLogoutAction();
-  setupEmployerAuthForm();
-  setupEmployerLogoutAction();
-  setupPostJobForm();
-  setupListingActions();
-  setupApplicationActions();
-  setupApplyForm();
-  await hydrateData();
-
-  if (hasEmployerSession()) {
-    setFormStatus(elements.employerAuthStatus, "Employer session ready.", "success");
-  } else {
-    setFormStatus(elements.employerAuthStatus, "Sign in to load your listings and CV files.", "");
-  }
-
-  if (hasEmployeeSession()) {
-    setFormStatus(elements.employeeAuthStatus, "Employee session ready.", "success");
-  } else {
-    setFormStatus(elements.employeeAuthStatus, "Sign in as employee to submit applications.", "");
-  }
+  document.querySelectorAll(".reveal").forEach((section) => section.classList.add("in-view"));
+  setupEvents();
+  await loadStoredSession();
+  await loadPublicData();
+  await loadRoleData();
+  renderAll();
 }
 
-init();
+init().catch((error) => {
+  console.error(error);
+  setApiStatus(false, "Frontend could not initialize. Check the browser console.");
+});
