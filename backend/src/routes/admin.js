@@ -30,7 +30,7 @@ const verifyCompanySchema = z.object({
 });
 
 const statusSchema = z.object({
-  status: z.enum(["DRAFT", "OPEN", "CLOSED", "ARCHIVED"])
+  status: z.enum(["DRAFT", "OPEN", "CLOSED"])
 });
 
 const reportStatusSchema = z.object({

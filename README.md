@@ -129,7 +129,6 @@ Jobs:
 - `GET /api/jobs/:id`
 - `POST /api/jobs` employer only
 - `PATCH /api/jobs/:id` owning employer or admin
-- `DELETE /api/jobs/:id` archives the job
 - `PATCH /api/jobs/:id/status`
 - `GET /api/jobs/:id/applications`
 

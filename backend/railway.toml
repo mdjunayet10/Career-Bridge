@@ -1,0 +1,9 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci && npm run prisma:generate"
+
+[deploy]
+startCommand = "npm start"
+preDeployCommand = "npm run prisma:migrate"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300

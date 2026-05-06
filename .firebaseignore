@@ -1,0 +1,10 @@
+backend/
+node_modules/
+.git/
+.env
+.env.*
+.DS_Store
+__MACOSX/
+backend/uploads/
+firebase-debug.log
+*.log

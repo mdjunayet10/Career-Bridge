@@ -1596,16 +1596,14 @@ function renderAdminDashboard() {
   if (elements.adminApplicationsTable) {
     const filteredApplications = getFilteredAdminApplications();
     const createApplicationRow = (application) => `
-      <tr class="admin-application-data-row">
+      <tr>
         <td>${escapeHtml(application.applicantName || "Applicant")}</td>
         <td>${escapeHtml(application.applicantEmail || "")}</td>
         <td>${escapeHtml(application.jobTitle || application.job?.title || "Job")}</td>
         <td>${escapeHtml(application.company || application.job?.company || application.job?.companyProfile?.name || "Company")}</td>
         <td>${statusBadge(application.status)}</td>
         <td>${escapeHtml(formatDate(application.createdAt))}</td>
-      </tr>
-      <tr class="admin-application-action-row">
-        <td colspan="6">
+        <td>
           <div class="table-actions">
             ${createApplicationActionButtons(application)}
             <button class="btn-action" type="button" data-action="admin-download-cv" data-id="${application.id}">
@@ -1615,7 +1613,7 @@ function renderAdminDashboard() {
         </td>
       </tr>
     `;
-    elements.adminApplicationsTable.innerHTML = createPaginatedTable("applications", ["Applicant", "Email", "Job", "Company", "Status", "Submitted"], filteredApplications, createApplicationRow);
+    elements.adminApplicationsTable.innerHTML = createPaginatedTable("applications", ["Applicant", "Email", "Job", "Company", "Status", "Submitted", "Actions"], filteredApplications, createApplicationRow);
   }
 
   if (elements.adminApplicationStatusSummary) {

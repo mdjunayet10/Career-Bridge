@@ -43,7 +43,7 @@ const createJobSchema = z.object({
   salaryMax: z.preprocess((value) => (value === "" || value === undefined ? undefined : Number(value)), z.number().int().nonnegative().optional()),
   currency: z.string().trim().min(3).max(8).optional(),
   deadline: z.string().trim().optional(),
-  status: z.enum(["DRAFT", "OPEN", "CLOSED", "ARCHIVED"]).optional()
+  status: z.enum(["DRAFT", "OPEN", "CLOSED"]).optional()
 });
 
 const patchJobSchema = createJobSchema.partial().extend({
@@ -51,7 +51,7 @@ const patchJobSchema = createJobSchema.partial().extend({
 });
 
 const statusSchema = z.object({
-  status: z.enum(["DRAFT", "OPEN", "CLOSED", "ARCHIVED"])
+  status: z.enum(["DRAFT", "OPEN", "CLOSED"])
 });
 
 function parseId(value, label = "ID") {
@@ -229,6 +229,7 @@ router.get("/", optionalAuth, asyncHandler(async (req, res) => {
   const category = String(req.query.category || "").trim();
   const skill = String(req.query.skill || req.query.skills || "").trim();
   const status = String(req.query.status || "").trim().toUpperCase();
+  const visibleStatus = ["DRAFT", "OPEN", "CLOSED"].includes(status) ? status : "";
   const companyId = req.query.companyId ? Number.parseInt(req.query.companyId, 10) : null;
   const salaryMin = req.query.salaryMin ? Number.parseInt(req.query.salaryMin, 10) : null;
   const salaryMax = req.query.salaryMax ? Number.parseInt(req.query.salaryMax, 10) : null;
@@ -391,15 +392,15 @@ router.get("/", optionalAuth, asyncHandler(async (req, res) => {
       ...(where.company || {}),
       ownerUserId: req.user.id
     };
-    where.status = status && status !== "ALL" ? status : {
+    where.status = visibleStatus ? visibleStatus : {
       not: "ARCHIVED"
     };
   } else if (req.user?.role === "ADMIN") {
-    if (status && status !== "ALL") {
-      where.status = status;
+    if (visibleStatus) {
+      where.status = visibleStatus;
     }
   } else {
-    where.status = status && status !== "ALL" ? status : "OPEN";
+    where.status = "OPEN";
     where.company = {
       ...(where.company || {}),
       verified: true
@@ -617,34 +618,6 @@ router.patch("/:id", requireAuth, requireRole("EMPLOYER", "ADMIN"), validateBody
 
   res.json({
     message: "Job updated successfully",
-    data: serializeJob(updatedJob)
-  });
-}));
-
-router.delete("/:id", requireAuth, requireRole("EMPLOYER", "ADMIN"), asyncHandler(async (req, res) => {
-  const jobId = parseId(req.params.id, "job ID");
-  const job = await findJobForAccess(jobId);
-  assertCanManageJob(req.user, job, "You are not allowed to delete this job");
-
-  const updatedJob = await prisma.job.update({
-    where: {
-      id: jobId
-    },
-    data: {
-      status: "ARCHIVED"
-    },
-    include: jobInclude
-  });
-
-  await writeAuditLog({
-    actorUserId: req.user.id,
-    action: "ARCHIVE_JOB",
-    targetType: "JOB",
-    targetId: jobId
-  });
-
-  res.json({
-    message: "Job archived successfully",
     data: serializeJob(updatedJob)
   });
 }));

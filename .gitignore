@@ -4,20 +4,29 @@ backend/node_modules/
 
 # Environment files
 .env
+.env.*
+!.env.example
 backend/.env
-backend/.env.local.backup
-*.env
+backend/.env.*
+!backend/.env.example
 
-# User uploaded files
+# Uploads / private user files
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# OS files
+.DS_Store
+__MACOSX/
+
+# Firebase local files
+.firebase/
+firebase-debug.log
 
 # Logs
 *.log
 npm-debug.log*
-
-# OS files
-.DS_Store
+yarn-debug.log*
+yarn-error.log*
 
 # Build/cache
 dist/
