@@ -21,15 +21,32 @@ const { ApiError } = require("./utils/apiError");
 const { isZodError } = require("./middleware/validate");
 
 const frontendRoot = path.resolve(__dirname, "../..");
+const defaultAllowedOrigins = [
+  "https://career-bridge-dd01c.web.app",
+  "https://career-bridge-dd01c.firebaseapp.com",
+  "https://careerbridgebd.web.app",
+  "https://careerbridgebd.firebaseapp.com"
+];
 
 function parseAllowedOrigins() {
-  const rawValue = process.env.ALLOWED_ORIGINS || process.env.CLIENT_ORIGIN || "*";
+  const rawValue = [
+    process.env.ALLOWED_ORIGINS,
+    process.env.CLIENT_ORIGIN,
+    process.env.FRONTEND_URL
+  ]
+    .filter(Boolean)
+    .join(",");
+
   const values = rawValue
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
 
-  return values.length ? values : ["*"];
+  if (values.includes("*")) {
+    return ["*"];
+  }
+
+  return [...new Set([...values, ...defaultAllowedOrigins])];
 }
 
 function buildCorsOptions() {

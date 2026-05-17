@@ -2,8 +2,11 @@ const configuredApiBase = document
   .querySelector("meta[name='career-bridge-api-base']")
   ?.getAttribute("content");
 
-const API_BASE = String(configuredApiBase || "").trim()
-  || (window.location.protocol === "file:" ? "http://localhost:4000" : "");
+const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+const API_BASE = isLocalHost
+  ? ""
+  : String(configuredApiBase || "").trim()
+    || (window.location.protocol === "file:" ? "http://localhost:4000" : "");
 const REQUEST_TIMEOUT_MS = 12_000;
 const AUTH_STORAGE_KEY = "careerBridgeAuth";
 const CV_BUILDER_STORAGE_KEY = "careerBridgeCvBuilderDraft";
