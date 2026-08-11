@@ -1,0 +1,570 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function hasUserProfile() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function activeUser() {
+      return hasUserProfile() && currentUser().isActive == true;
+    }
+
+    function hasRole(role) {
+      return activeUser() && currentUser().role == role;
+    }
+
+    // Supports atomic registration batches that create users/{uid} and
+    // companies/{companyId} together. getAfter() evaluates the post-write state.
+    function hasRoleAfter(role) {
+      return signedIn()
+        && existsAfter(userPath(request.auth.uid))
+        && getAfter(userPath(request.auth.uid)).data.isActive == true
+        && getAfter(userPath(request.auth.uid)).data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isEmployer() {
+      return hasRole('employer');
+    }
+
+    function isApprovedEmployer() {
+      return isEmployer()
+        && currentUser().verificationStatus == 'approved';
+    }
+
+    function isJobSeeker() {
+      return hasRole('jobSeeker');
+    }
+
+    function companyPath(companyId) {
+      return /databases/$(database)/documents/companies/$(companyId);
+    }
+
+    function jobPath(jobId) {
+      return /databases/$(database)/documents/jobs/$(jobId);
+    }
+
+    function applicationPath(applicationId) {
+      return /databases/$(database)/documents/applications/$(applicationId);
+    }
+
+    function filePath(fileId) {
+      return /databases/$(database)/documents/fileObjects/$(fileId);
+    }
+
+    function platformSettingsPath() {
+      return /databases/$(database)/documents/platformSettings/general;
+    }
+
+    function registrationAllowed(role) {
+      return !exists(platformSettingsPath())
+        || (
+          role == 'jobSeeker'
+          && get(platformSettingsPath()).data.allowJobSeekerRegistration == true
+        )
+        || (
+          role == 'employer'
+          && get(platformSettingsPath()).data.allowEmployerRegistration == true
+        );
+    }
+
+    function ownsCompany(companyId) {
+      return isEmployer()
+        && exists(companyPath(companyId))
+        && get(companyPath(companyId)).data.ownerUid == request.auth.uid;
+    }
+
+    function approvedCompany(companyId) {
+      return exists(companyPath(companyId))
+        && get(companyPath(companyId)).data.verificationStatus == 'approved'
+        && get(companyPath(companyId)).data.isActive == true;
+    }
+
+    function ownsJob(jobId) {
+      return isEmployer()
+        && exists(jobPath(jobId))
+        && get(jobPath(jobId)).data.employerUid == request.auth.uid;
+    }
+
+    function employerOwnsApplication(applicationId) {
+      return isEmployer()
+        && exists(applicationPath(applicationId))
+        && ownsJob(get(applicationPath(applicationId)).data.jobId);
+    }
+
+
+    function validApplicationCv(applicationId, data) {
+      return !data.keys().hasAny(['cvFileId'])
+        || data.cvFileId == null
+        || (
+          data.cvFileId is string
+          && exists(filePath(data.cvFileId))
+          && get(filePath(data.cvFileId)).data.ownerUid == request.auth.uid
+          && get(filePath(data.cvFileId)).data.applicationId == applicationId
+          && get(filePath(data.cvFileId)).data.mimeType == 'application/pdf'
+          && get(filePath(data.cvFileId)).data.purpose == 'applicationCv'
+          && get(filePath(data.cvFileId)).data.state == 'ready'
+        );
+    }
+
+    function publicJob(data) {
+      return data.status == 'published' && data.isActive == true;
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role in ['jobSeeker', 'employer']
+        && registrationAllowed(request.resource.data.role)
+        && request.resource.data.isActive == true
+        && request.resource.data.email == request.auth.token.email
+        && (
+          (
+            request.resource.data.role == 'jobSeeker'
+            && request.resource.data.verificationStatus == 'notRequired'
+          )
+          || (
+            request.resource.data.role == 'employer'
+            && request.resource.data.verificationStatus == 'pending'
+          )
+        );
+
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      allow update: if isAdmin()
+        || (
+          activeUser()
+          && request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.isActive == resource.data.isActive
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name',
+            'avatarFileId',
+            'phone',
+            'location',
+            'headline',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /jobSeekerProfiles/{uid} {
+      allow read: if isAdmin()
+        || (isJobSeeker() && request.auth.uid == uid);
+
+      allow create: if isJobSeeker()
+        && request.auth.uid == uid
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isAdmin()
+        || (
+          isJobSeeker()
+          && request.auth.uid == uid
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+        );
+
+      allow delete: if isAdmin()
+        || (isJobSeeker() && request.auth.uid == uid);
+    }
+
+    match /companies/{companyId} {
+      allow read: if (
+          resource.data.verificationStatus == 'approved'
+          && resource.data.isActive == true
+        )
+        || isAdmin()
+        || (isEmployer() && resource.data.ownerUid == request.auth.uid);
+
+      allow create: if hasRoleAfter('employer')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.verificationStatus == 'pending'
+        && request.resource.data.isActive == true;
+
+      allow update: if isAdmin()
+        || (
+          ownsCompany(companyId)
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.verificationStatus == resource.data.verificationStatus
+          && request.resource.data.isActive == resource.data.isActive
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name',
+            'industry',
+            'companySize',
+            'website',
+            'email',
+            'phone',
+            'address',
+            'description',
+            'logoFileId',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /companyVerifications/{companyId} {
+      allow create: if hasRoleAfter('employer')
+        && request.auth.uid == companyId
+        && request.resource.data.companyId == companyId
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.tradeLicenseNumber is string
+        && request.resource.data.status == 'pending';
+
+      allow read: if isAdmin()
+        || (
+          isEmployer()
+          && resource.data.ownerUid == request.auth.uid
+        );
+
+      // Verification evidence and Admin decisions are immutable to the Employer
+      // after registration. Requested corrections are handled by the Admin phase.
+      allow update, delete: if isAdmin();
+    }
+
+    match /jobs/{jobId} {
+      allow read: if publicJob(resource.data)
+        || isAdmin()
+        || (isEmployer() && resource.data.employerUid == request.auth.uid);
+
+      allow create: if isApprovedEmployer()
+        && request.resource.data.employerUid == request.auth.uid
+        && ownsCompany(request.resource.data.companyId)
+        && approvedCompany(request.resource.data.companyId)
+        && request.resource.data.status in ['draft', 'pending']
+        && request.resource.data.isActive == true;
+
+      allow update: if isAdmin()
+        || (
+          isApprovedEmployer()
+          && ownsJob(jobId)
+          && request.resource.data.employerUid == resource.data.employerUid
+          && request.resource.data.companyId == resource.data.companyId
+          && request.resource.data.status in ['draft', 'pending', 'closed']
+          && (
+            request.resource.data.status != 'pending'
+            || approvedCompany(request.resource.data.companyId)
+          )
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title',
+            'description',
+            'responsibilities',
+            'requirements',
+            'skills',
+            'categoryId',
+            'location',
+            'workMode',
+            'employmentType',
+            'experienceLevel',
+            'salaryMin',
+            'salaryMax',
+            'salaryPeriod',
+            'benefits',
+            'deadline',
+            'status',
+            'isActive',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /applications/{applicationId} {
+      allow create: if isJobSeeker()
+        && request.resource.data.applicantUid == request.auth.uid
+        && request.resource.data.status == 'applied'
+        && request.resource.data.applicantName is string
+        && request.resource.data.applicantEmail is string
+        && request.resource.data.applicantHeadline is string
+        && request.resource.data.applicantLocation is string
+        && request.resource.data.applicantExperienceYears is int
+        && request.resource.data.applicantSkills is list
+        && request.resource.data.jobTitle is string
+        && request.resource.data.companyId is string
+        && request.resource.data.companyName is string
+        && request.resource.data.jobLocation is string
+        && request.resource.data.jobEmploymentType is string
+        && request.resource.data.jobSalaryLabel is string
+        && validApplicationCv(applicationId, request.resource.data)
+        && exists(jobPath(request.resource.data.jobId))
+        && publicJob(get(jobPath(request.resource.data.jobId)).data)
+        && request.resource.data.jobTitle
+          == get(jobPath(request.resource.data.jobId)).data.title
+        && request.resource.data.jobLocation
+          == get(jobPath(request.resource.data.jobId)).data.location
+        && request.resource.data.jobEmploymentType
+          == get(jobPath(request.resource.data.jobId)).data.employmentType
+        && request.resource.data.companyId
+          == get(jobPath(request.resource.data.jobId)).data.companyId
+        && request.resource.data.companyName
+          == get(companyPath(request.resource.data.companyId)).data.name;
+
+      allow read: if isAdmin()
+        || (isJobSeeker() && resource.data.applicantUid == request.auth.uid)
+        || ownsJob(resource.data.jobId);
+
+      allow update: if isAdmin()
+        || (
+          ownsJob(resource.data.jobId)
+          && request.resource.data.applicantUid == resource.data.applicantUid
+          && request.resource.data.jobId == resource.data.jobId
+          && request.resource.data.status in [
+            'applied',
+            'reviewed',
+            'shortlisted',
+            'interview',
+            'hired',
+            'rejected'
+          ]
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'employerNote',
+            'interviewAt',
+            'updatedAt'
+          ])
+        )
+        || (
+          isJobSeeker()
+          && resource.data.applicantUid == request.auth.uid
+          && resource.data.status in [
+            'applied',
+            'reviewed',
+            'shortlisted',
+            'interview'
+          ]
+          && request.resource.data.status == 'withdrawn'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /savedJobs/{savedJobId} {
+      allow read: if isJobSeeker()
+        && resource.data.userUid == request.auth.uid;
+      allow create: if isJobSeeker()
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.jobId is string;
+      allow delete: if isJobSeeker()
+        && resource.data.userUid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /cvProfiles/{uid} {
+      allow read: if isAdmin()
+        || (isJobSeeker() && request.auth.uid == uid);
+      allow create: if isJobSeeker()
+        && request.auth.uid == uid
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAdmin()
+        || (
+          isJobSeeker()
+          && request.auth.uid == uid
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+        );
+      allow delete: if isAdmin()
+        || (isJobSeeker() && request.auth.uid == uid);
+    }
+
+    match /notifications/{notificationId} {
+      allow read, delete: if isAdmin()
+        || (activeUser() && resource.data.recipientUid == request.auth.uid);
+      allow update: if isAdmin()
+        || (
+          activeUser()
+          && resource.data.recipientUid == request.auth.uid
+          && request.resource.data.recipientUid == resource.data.recipientUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead'])
+        );
+
+      allow create: if isAdmin()
+        || (
+          isEmployer()
+          && employerOwnsApplication(request.resource.data.applicationId)
+          && request.resource.data.recipientUid
+            == get(applicationPath(request.resource.data.applicationId)).data.applicantUid
+        );
+    }
+
+    match /reports/{reportId} {
+      allow create: if activeUser()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.status == 'open';
+      allow read: if isAdmin()
+        || (activeUser() && resource.data.reporterUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if resource.data.isActive == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /salaryInsights/{insightId} {
+      allow read: if resource.data.isActive == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /platformSettings/{settingsId} {
+      // The public app needs maintenance and registration flags. This document
+      // must contain no secrets; only Admins can mutate it.
+      allow read: if settingsId == 'general' || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      // Audit records are Admin-only and append-only from the client.
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /fileObjects/{fileId} {
+      function fileOwner() {
+        return activeUser() && resource.data.ownerUid == request.auth.uid;
+      }
+
+      function canReadAttachedApplicationFile() {
+        return resource.data.state == 'ready'
+          && resource.data.applicationId is string
+          && employerOwnsApplication(resource.data.applicationId);
+      }
+
+      function publicCompanyLogo() {
+        return resource.data.state == 'ready'
+          && resource.data.purpose == 'companyLogo'
+          && resource.data.mimeType in ['image/jpeg', 'image/png', 'image/webp']
+          && approvedCompany(resource.data.ownerUid)
+          && get(companyPath(resource.data.ownerUid)).data.logoFileId == fileId;
+      }
+
+      allow create: if activeUser()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.fileName is string
+        && request.resource.data.mimeType in [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'image/webp'
+        ]
+        && request.resource.data.sizeBytes is int
+        && request.resource.data.sizeBytes > 0
+        && request.resource.data.sizeBytes <= 2097152
+        && request.resource.data.chunkCount is int
+        && request.resource.data.chunkCount > 0
+        && request.resource.data.chunkCount <= 8
+        && request.resource.data.sha256 is string
+        && request.resource.data.sha256.size() == 64
+        && request.resource.data.purpose in [
+          'profileImage',
+          'companyLogo',
+          'applicationCv',
+          'uploadedCv',
+          'other'
+        ]
+        && (
+          (request.resource.data.purpose == 'profileImage' && isJobSeeker())
+          || (request.resource.data.purpose == 'companyLogo' && isEmployer())
+          || (
+            request.resource.data.purpose == 'applicationCv'
+            && isJobSeeker()
+            && request.resource.data.applicationId is string
+          )
+          || (request.resource.data.purpose == 'uploadedCv' && isJobSeeker())
+          || request.resource.data.purpose == 'other'
+        )
+        && request.resource.data.state == 'uploading';
+
+      allow read: if isAdmin()
+        || fileOwner()
+        || publicCompanyLogo()
+        || canReadAttachedApplicationFile();
+
+      allow update: if isAdmin()
+        || (
+          fileOwner()
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.applicationId == resource.data.applicationId
+          && request.resource.data.fileName == resource.data.fileName
+          && request.resource.data.mimeType == resource.data.mimeType
+          && request.resource.data.sizeBytes == resource.data.sizeBytes
+          && request.resource.data.chunkCount == resource.data.chunkCount
+          && request.resource.data.sha256 == resource.data.sha256
+          && request.resource.data.purpose == resource.data.purpose
+          && request.resource.data.state == 'ready'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'state',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isAdmin() || fileOwner();
+
+      match /chunks/{chunkId} {
+        function fileMetadata() {
+          return get(/databases/$(database)/documents/fileObjects/$(fileId)).data;
+        }
+
+        function chunkOwner() {
+          return activeUser() && fileMetadata().ownerUid == request.auth.uid;
+        }
+
+        function employerCanReadChunk() {
+          return fileMetadata().state == 'ready'
+            && fileMetadata().applicationId is string
+            && employerOwnsApplication(fileMetadata().applicationId);
+        }
+
+        function publicCompanyLogoChunk() {
+          return fileMetadata().state == 'ready'
+            && fileMetadata().purpose == 'companyLogo'
+            && fileMetadata().mimeType in ['image/jpeg', 'image/png', 'image/webp']
+            && approvedCompany(fileMetadata().ownerUid)
+            && get(companyPath(fileMetadata().ownerUid)).data.logoFileId == fileId;
+        }
+
+        allow create: if chunkOwner()
+          && fileMetadata().state == 'uploading'
+          && request.resource.data.index is int
+          && request.resource.data.index >= 0
+          && request.resource.data.index < fileMetadata().chunkCount
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 700000;
+
+        allow read: if isAdmin()
+          || chunkOwner()
+          || publicCompanyLogoChunk()
+          || employerCanReadChunk();
+        allow update: if false;
+        allow delete: if isAdmin() || chunkOwner();
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

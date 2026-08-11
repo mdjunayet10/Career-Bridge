@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Career Bridge — find verified jobs, build your CV, and manage applications.">
+  <meta name="theme-color" content="#05070D">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Career Bridge">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  <title>Career Bridge</title>
+
+  <meta name="career-bridge-release" content="1.4.4+21">
+  <script>
+    // Remove stale Flutter service workers/caches from earlier deployments.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) registration.unregister();
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+    }
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
