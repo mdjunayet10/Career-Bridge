@@ -1,0 +1,10 @@
+{
+  "id": "general",
+  "platformName": "Career Bridge",
+  "supportEmail": "support@careerbridge.edu",
+  "employerReviewRequired": true,
+  "jobReviewRequired": true,
+  "maintenanceMode": false,
+  "allowJobSeekerRegistration": true,
+  "allowEmployerRegistration": true
+}
