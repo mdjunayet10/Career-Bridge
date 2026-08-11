@@ -1,4 +1,4 @@
-# Career Bridge V2
+# Career Bridge
 
 Bangladesh-focused university job portal with separate Flutter frontend and Firebase backend folders.
 
