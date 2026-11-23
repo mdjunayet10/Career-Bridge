@@ -1,0 +1,58 @@
+name: Build Career Bridge User and Admin APKs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'frontend/**'
+      - 'scripts/build_android_apps.sh'
+      - '.github/workflows/build-careerbridge-apks.yml'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Restore Firebase client configuration
+        env:
+          FIREBASE_CONFIG_JSON: ${{ secrets.CAREER_BRIDGE_FIREBASE_CONFIG_JSON }}
+        run: |
+          if [[ -z "${FIREBASE_CONFIG_JSON}" ]]; then
+            echo "::error::Configure repository secret CAREER_BRIDGE_FIREBASE_CONFIG_JSON with the contents of frontend/config/firebase.local.json."
+            exit 1
+          fi
+          printf '%s' "${FIREBASE_CONFIG_JSON}" > frontend/config/firebase.local.json
+      - name: Download dependencies and format source
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart format lib test
+      - name: Analyze Flutter project
+        working-directory: frontend
+        run: flutter analyze
+      - name: Check shared demo identities and public/private jobs
+        working-directory: frontend
+        run: flutter test --concurrency=1 test/unit/demo_showcase_consistency_test.dart test/unit/demo_catalog_test.dart test/unit/public_portal_repository_test.dart
+      - name: Generate User and Admin release APKs
+        run: bash scripts/build_android_apps.sh release
+      - name: Upload User and Admin APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: career-bridge-latest-release-apks
+          path: output/apk/*.apk
+          if-no-files-found: error
+          retention-days: 14

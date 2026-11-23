@@ -1,0 +1,22 @@
+Career Bridge 1.4.6 — Empty Firestore Demo Fallback
+
+This patch does not contain firebase.local.json, google-services.json, or GoogleService-Info.plist.
+It is safe to copy over the existing Career-Bridge-1.4.5 folder.
+
+After Safari auto-extracts this folder, from Terminal run:
+
+cd ~/Downloads/Career-Bridge-1.4.5
+rsync -av ~/Downloads/Career-Bridge-1.4.6-Empty-Firestore-Demo-Patch/ ./
+
+Confirm frontend/config/firebase.local.json contains:
+  "ALLOW_DEMO_FALLBACK": true
+  "SHOW_DEMO_ACCESS": false
+
+Then deploy:
+  chmod +x scripts/*.sh
+  ./scripts/deploy_firebase.sh
+
+Behavior:
+- Firebase Auth and live user workflows stay active.
+- Empty public sections use bundled sample content.
+- Real Firestore content takes priority section by section.

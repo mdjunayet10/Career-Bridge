@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "career-bridge-dd01c",
+    "careerbridgebd": "career-bridge-dd01c"
+  },
+  "targets": {
+    "career-bridge-dd01c": {
+      "hosting": {
+        "careerbridgebd": [
+          "careerbridgebd"
+        ]
+      }
+    }
+  }
+}
+
