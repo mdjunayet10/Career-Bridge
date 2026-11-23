@@ -1,0 +1,64 @@
+name: Validate Career Bridge and Build APKs when configured
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'frontend/**'
+      - 'scripts/build_android_apps.sh'
+      - '.github/workflows/build-careerbridge-apks.yml'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.7'
+          cache: true
+      - name: Download dependencies and format source
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart format lib test
+      - name: Analyze Flutter project
+        working-directory: frontend
+        run: flutter analyze
+      - name: Check shared demo identities and public/private jobs
+        working-directory: frontend
+        run: flutter test --concurrency=1 test/unit/demo_showcase_consistency_test.dart test/unit/demo_catalog_test.dart test/unit/public_portal_repository_test.dart
+      - name: Restore Firebase client configuration if available
+        id: firebase_config
+        env:
+          FIREBASE_CONFIG_JSON: ${{ secrets.CAREER_BRIDGE_FIREBASE_CONFIG_JSON }}
+        run: |
+          if [[ -z "${FIREBASE_CONFIG_JSON}" ]]; then
+            echo "::warning::CAREER_BRIDGE_FIREBASE_CONFIG_JSON not configured; Flutter validation completed, APK builds will be skipped."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s' "${FIREBASE_CONFIG_JSON}" > frontend/config/firebase.local.json
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate User and Admin release APKs
+        if: steps.firebase_config.outputs.available == 'true'
+        run: bash scripts/build_android_apps.sh release
+      - name: Upload User and Admin APKs
+        if: steps.firebase_config.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: career-bridge-latest-release-apks
+          path: output/apk/*.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,64 @@
+# Flutter
+.dart_tool/
+.packages
+.pub-cache/
+build/
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Firebase
+.firebase/
+backend/firebase/.firebaserc
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Secrets
+.env
+*.keystore
+*.jks
+
+# Legacy dependencies
+legacy_reference/**/node_modules/
+frontend/config/firebase.local.json
+backend/**/service-account*.json
+backend/**/firebase-adminsdk-*.json
+
+# Local verification output
+validation_logs/
+
+/private/
+
+# Generated verification/dependency output
+**/node_modules/
+/output/
+**/firebase-debug.log
+**/firestore-debug.log
+
+# Secrets and locally generated config (safe GitHub import)
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/*service-account*.json
+**/*firebase-adminsdk-*.json
+**/google-services.json
+**/GoogleService-Info.plist
+**/key.properties
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+*.cer
+*.pfx
+*.jks
+*.keystore
+**/firebase.local.json
+**/firebase-debug.log
+**/firestore-debug.log
+**/validation_logs/

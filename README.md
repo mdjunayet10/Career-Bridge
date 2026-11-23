@@ -1,3 +1,5 @@
+> **Current source release:** Career Bridge 1.7.5+33 includes live updates, direct applicant actions, usable demo applications and All Jobs. Read [release notes](docs/live-workflows-release.md). Earlier notes below are historical.
+
 # Career Bridge V2
 
 Bangladesh-focused university job portal with separate Flutter frontend and Firebase backend folders.
@@ -39,6 +41,8 @@ docs/             architecture, routes, workflows, and status
 ```
 
 ## Current progress
+
+The current clean smart-feature build preserves the working Admin login flow while adding improved location/search filters, Profile-to-CV auto sync, CV/Profile-based job recommendations, job-match notifications, left-aligned landing sections, clearly separated sample landing jobs, and automatically calculated Salary Insights from active published jobs. Fake public statistics and the Employer recruitment mock dashboard have been removed. See `UPDATE_NOTES_1.5.1.md` and `PROJECT_UPDATE_FOR_SUPERVISOR.md`.
 
 Version 1.4.0 adds Firebase Google Sign-In for the web app, including first-time Job Seeker creation, Employer company-registration completion, role-aware routing, and hardened error handling. The Firebase deployment scripts now copy the web build into the configured Hosting public directory and deploy the existing `careerbridgebd` target. Version 1.3.2 is a visual hotfix that removes the isolated hero glow beside the Bangladesh badge, increases company-card height to prevent bottom overflow on wrapped facts, and replaces low-resolution brand assets with Retina-ready versions for sharper authentication screens. Version 1.3.1 is the UI Polish Batch 3 compile hotfix. It restores the responsive company-profile helpers and fixes a non-constant widget expression found by Flutter 3.41.7. Version 1.3.0 introduced UI Polish Batch 3. It introduces a single-source company-logo architecture: Employers upload one company-profile logo, every job/application references only the company ID, and all public, Employer, and Admin views reuse the same live logo reference. It also polishes the Job Seeker, Employer, and Admin workspaces with a stronger responsive shell, premium metrics, clearer role context, improved loading/error states, Employer identity actions, and Admin moderation shortcuts.
 

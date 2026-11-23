@@ -1,0 +1,6 @@
+{
+  "APP_ENVIRONMENT": "demo",
+  "USE_FIREBASE_AUTH": false,
+  "ALLOW_DEMO_FALLBACK": true,
+  "SHOW_DEMO_ACCESS": true
+}

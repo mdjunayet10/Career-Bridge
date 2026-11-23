@@ -1,0 +1,8 @@
+[
+  {"id":"technology","name":"Technology","description":"Software, data, IT, and engineering roles.","iconName":"memory","isActive":true,"sortOrder":1},
+  {"id":"creative","name":"Creative","description":"Design, content, media, and product craft.","iconName":"palette","isActive":true,"sortOrder":2},
+  {"id":"business","name":"Business","description":"Operations, management, finance, and strategy.","iconName":"business_center","isActive":true,"sortOrder":3},
+  {"id":"marketing","name":"Marketing","description":"Growth, digital marketing, and communications.","iconName":"campaign","isActive":true,"sortOrder":4},
+  {"id":"education","name":"Education","description":"Teaching, training, and education technology.","iconName":"school","isActive":true,"sortOrder":5},
+  {"id":"customer-support","name":"Customer Support","description":"Customer success, support, and service.","iconName":"support_agent","isActive":true,"sortOrder":6}
+]
