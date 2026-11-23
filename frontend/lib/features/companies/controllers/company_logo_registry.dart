@@ -50,3 +50,4 @@ class CompanyLogoRegistry extends ChangeNotifier {
     _logoFileIds.clear();
     notifyListeners();
   }
+}
