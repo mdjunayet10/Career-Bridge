@@ -277,7 +277,7 @@ class FirebaseAuthRepository implements AuthRepository {
       final existing =
           await _firestore.collection('users').doc(firebaseUser.uid).get();
       if (existing.exists) {
-        return _loadProfile(firebaseUser.uid);
+        return await _loadProfile(firebaseUser.uid);
       }
 
       await firebaseUser.updateDisplayName(data.contactName.trim());
