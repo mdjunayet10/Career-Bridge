@@ -1,0 +1,7 @@
+<resources>
+ <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+  <item name="android:windowSplashScreenBackground">@color/career_bridge_background</item>
+  <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+  <item name="android:windowBackground">@color/career_bridge_background</item>
+ </style>
+</resources>
