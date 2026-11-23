@@ -13,7 +13,7 @@ fi
 cd "$FRONTEND_DIR"
 BACKUP_DIR="$(mktemp -d)"
 BACKUP_ARCHIVE="$BACKUP_DIR/career_bridge_custom.tar"
-CUSTOM_PATHS=(lib assets test web config pubspec.yaml analysis_options.yaml README.md)
+CUSTOM_PATHS=(lib assets test web config pubspec.yaml analysis_options.yaml)
 
 cleanup() {
   rm -rf "$BACKUP_DIR"
