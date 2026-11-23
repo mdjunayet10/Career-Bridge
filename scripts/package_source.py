@@ -29,7 +29,7 @@ with zipfile.ZipFile(output) as archive:
     names = set(archive.namelist())
     for required in ['frontend/lib/main.dart', 'frontend/pubspec.lock', 'frontend/assets/cv_fonts/lmroman10-regular.ttf',
                      'frontend/assets/fonts/Sora-400.ttf', 'frontend/android/gradlew', 'backend/functions/index.js',
-                     'backend/firebase/firestore.rules', 'README_DELIVERY.md']:
+                     'backend/firebase/firestore.rules', 'README.md']:
         if 'Career-Bridge/' + required not in names:
             raise RuntimeError(f'Missing source component: {required}')
     if any('/private/' in name or '/node_modules/' in name for name in names):
