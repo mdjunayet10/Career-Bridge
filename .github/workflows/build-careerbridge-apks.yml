@@ -1,4 +1,4 @@
-name: Build Career Bridge User and Admin APKs
+name: Validate Career Bridge and Build APKs when configured
 
 on:
   workflow_dispatch:
@@ -27,15 +27,6 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Restore Firebase client configuration
-        env:
-          FIREBASE_CONFIG_JSON: ${{ secrets.CAREER_BRIDGE_FIREBASE_CONFIG_JSON }}
-        run: |
-          if [[ -z "${FIREBASE_CONFIG_JSON}" ]]; then
-            echo "::error::Configure repository secret CAREER_BRIDGE_FIREBASE_CONFIG_JSON with the contents of frontend/config/firebase.local.json."
-            exit 1
-          fi
-          printf '%s' "${FIREBASE_CONFIG_JSON}" > frontend/config/firebase.local.json
       - name: Download dependencies and format source
         working-directory: frontend
         run: |
@@ -47,9 +38,23 @@ jobs:
       - name: Check shared demo identities and public/private jobs
         working-directory: frontend
         run: flutter test --concurrency=1 test/unit/demo_showcase_consistency_test.dart test/unit/demo_catalog_test.dart test/unit/public_portal_repository_test.dart
+      - name: Restore Firebase client configuration if available
+        id: firebase_config
+        env:
+          FIREBASE_CONFIG_JSON: ${{ secrets.CAREER_BRIDGE_FIREBASE_CONFIG_JSON }}
+        run: |
+          if [[ -z "${FIREBASE_CONFIG_JSON}" ]]; then
+            echo "::warning::CAREER_BRIDGE_FIREBASE_CONFIG_JSON not configured; Flutter validation completed, APK builds will be skipped."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s' "${FIREBASE_CONFIG_JSON}" > frontend/config/firebase.local.json
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Generate User and Admin release APKs
+        if: steps.firebase_config.outputs.available == 'true'
         run: bash scripts/build_android_apps.sh release
       - name: Upload User and Admin APKs
+        if: steps.firebase_config.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: career-bridge-latest-release-apks
